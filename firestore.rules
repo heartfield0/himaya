@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && (
+          request.auth.token.admin == true
+          || request.auth.token.email == "admin@himaya.co"
+        );
+    }
+
+    function isPublicViewIncrement() {
+      return request.auth == null
+        && resource.data.status == "active"
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(["views", "lastViewedAt", "updatedAt"])
+        && request.resource.data.views == resource.data.views + 1
+        && request.resource.data.lastViewedAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /customerPages/{pageId} {
+      // Admin can read everything. Public can only read active pages.
+      allow get, list: if isAdmin() || resource.data.status == "active";
+
+      // Admin full write access.
+      allow create, delete: if isAdmin();
+
+      // Public can only increment view-related fields on active pages.
+      allow update: if isAdmin() || isPublicViewIncrement();
+    }
+  }
+}
