@@ -38,6 +38,8 @@ export interface CustomerPage {
   updatedAt: string
   themePreset: 'classic' | 'rose' | 'warm-minimal'
   passwordEnabled: boolean
+  /** Premium: visitor passphrase when passwordEnabled (light client-side gate; stored in Firestore). */
+  giftAccessPassword: string
   timedUnlockEnabled: boolean
   notifyOnOpen: boolean
   musicAutoplay: boolean

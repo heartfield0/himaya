@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type FormEvent,
+} from 'react'
 import { QRCodeCanvas } from 'qrcode.react'
 import { normalizedGalleryUrls, parseDirectAudioUrl, parseVideoUrl } from '../../lib/mediaUrls'
 import {
@@ -561,13 +571,62 @@ function GalleryImagesUpload({
   slugForPath: string
   onUrlsChange: (next: string[]) => void
 }) {
-  const [isDragging, setIsDragging] = useState(false)
+  const [isFileDropHighlight, setIsFileDropHighlight] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadLabel, setUploadLabel] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
+  const [reorderDragIndex, setReorderDragIndex] = useState<number | null>(null)
+  const [reorderOverIndex, setReorderOverIndex] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
+
+  const GALLERY_REORDER_MIME = 'application/x-himaya-gallery-index'
+
+  const handleReorderDragStart = (index: number) => (e: DragEvent) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData(GALLERY_REORDER_MIME, String(index))
+    e.dataTransfer.setData('text/plain', String(index))
+    setReorderDragIndex(index)
+  }
+
+  const handleReorderDragEnd = () => {
+    setReorderDragIndex(null)
+    setReorderOverIndex(null)
+  }
+
+  const handleReorderDragOver = (index: number) => (e: DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setReorderOverIndex(index)
+  }
+
+  const handleReorderDragLeave = () => {
+    setReorderOverIndex(null)
+  }
+
+  const handleReorderDrop = (dropIndex: number) => (e: DragEvent) => {
+    e.preventDefault()
+    if (e.dataTransfer.files.length > 0) {
+      handleReorderDragEnd()
+      return
+    }
+    const raw = e.dataTransfer.getData(GALLERY_REORDER_MIME) || e.dataTransfer.getData('text/plain')
+    const from = Number.parseInt(raw, 10)
+    if (Number.isNaN(from) || from < 0 || from >= list.length) {
+      handleReorderDragEnd()
+      return
+    }
+    if (from === dropIndex) {
+      handleReorderDragEnd()
+      return
+    }
+    const next = [...list]
+    const [item] = next.splice(from, 1)
+    next.splice(dropIndex, 0, item)
+    onUrlsChange(next)
+    handleReorderDragEnd()
+  }
 
   const list = useMemo(() => normalizedGalleryUrls(urls), [urls])
   const remaining = Math.max(0, maxCount - list.length)
@@ -647,27 +706,40 @@ function GalleryImagesUpload({
     <div className="form-field-stack admin-gallery-upload">
       <span className="form-field-inline-label">Gallery images</span>
       <span className="field-hint">
-        Upload up to {maxCount} images for this tier. Drag and drop or choose files — URLs are stored in Firestore and shown on the public page as before.
+        Upload up to {maxCount} images for this tier. Drag files onto the drop zone to add them. Drag thumbnails to reorder — order is saved with the page.
       </span>
 
       {list.length > 0 ? (
-        <ul className="admin-gallery-grid" aria-label="Uploaded gallery images">
-          {list.map((url, index) => (
-            <li key={`${url}-${index}`} className="admin-gallery-tile">
-              <div className="admin-gallery-thumb-wrap">
-                <img src={url} alt="" className="admin-gallery-thumb" decoding="async" loading="lazy" />
-              </div>
-              <button
-                type="button"
-                className="ghost-btn admin-gallery-remove"
-                onClick={() => removeAt(index)}
-                aria-label={`Remove image ${index + 1}`}
+        <>
+          <p className="field-hint admin-gallery-drag-hint">Drag any thumbnail to change the gallery order on the public page.</p>
+          <ul className="admin-gallery-grid" aria-label="Uploaded gallery images">
+            {list.map((url, index) => (
+              <li
+                key={`${url}::${index}`}
+                className={`admin-gallery-tile${reorderDragIndex === index ? ' admin-gallery-tile--dragging' : ''}${reorderOverIndex === index ? ' admin-gallery-tile--over' : ''}`}
+                draggable
+                onDragStart={handleReorderDragStart(index)}
+                onDragEnd={handleReorderDragEnd}
+                onDragOver={handleReorderDragOver(index)}
+                onDragLeave={handleReorderDragLeave}
+                onDrop={handleReorderDrop(index)}
               >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
+                <div className="admin-gallery-thumb-wrap">
+                  <img src={url} alt="" className="admin-gallery-thumb" decoding="async" loading="lazy" draggable={false} />
+                </div>
+                <button
+                  type="button"
+                  className="ghost-btn admin-gallery-remove"
+                  draggable={false}
+                  onClick={() => removeAt(index)}
+                  aria-label={`Remove image ${index + 1}`}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       ) : null}
 
       {remaining > 0 ? (
@@ -682,13 +754,13 @@ function GalleryImagesUpload({
             multiple
           />
           <div
-            className={`audio-dropzone${isDragging ? ' audio-dropzone--active' : ''}${isUploading ? ' audio-dropzone--uploading' : ''}`}
+            className={`audio-dropzone${isFileDropHighlight ? ' audio-dropzone--active' : ''}${isUploading ? ' audio-dropzone--uploading' : ''}`}
             onDragEnter={(e) => {
               e.preventDefault()
               e.stopPropagation()
               if (isUploading) return
               dragDepth.current += 1
-              setIsDragging(true)
+              setIsFileDropHighlight(true)
             }}
             onDragOver={(e) => {
               e.preventDefault()
@@ -699,13 +771,13 @@ function GalleryImagesUpload({
               e.preventDefault()
               e.stopPropagation()
               dragDepth.current = Math.max(0, dragDepth.current - 1)
-              if (dragDepth.current === 0) setIsDragging(false)
+              if (dragDepth.current === 0) setIsFileDropHighlight(false)
             }}
             onDrop={(e) => {
               e.preventDefault()
               e.stopPropagation()
               dragDepth.current = 0
-              setIsDragging(false)
+              setIsFileDropHighlight(false)
               if (isUploading) return
               if (e.dataTransfer.files?.length) void processFiles(e.dataTransfer.files)
             }}
@@ -766,6 +838,7 @@ const defaultForm: Omit<CustomerPage, 'id' | 'createdAt' | 'updatedAt' | 'views'
   unlockAt: null,
   themePreset: 'classic',
   passwordEnabled: false,
+  giftAccessPassword: '',
   timedUnlockEnabled: false,
   notifyOnOpen: true,
   musicAutoplay: false,
@@ -877,6 +950,9 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
       themeAccentColor: capsSubmit.customThemeBuilder ? normalizeAccentForStorage(form.themeAccentColor) : '',
       themeBackgroundImageUrl: capsSubmit.customThemeBuilder ? form.themeBackgroundImageUrl.trim() : '',
       occasionIcon: capsSubmit.occasionSealIconPicker ? form.occasionIcon : 'heart',
+      passwordEnabled: capsSubmit.passwordToggle ? form.passwordEnabled : false,
+      giftAccessPassword:
+        capsSubmit.passwordToggle && form.passwordEnabled ? form.giftAccessPassword.trim() : '',
     })
   }
 
@@ -940,6 +1016,8 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
                       : ((allow[0] ?? 'classic') as CustomerPage['themePreset']),
                     occasionIcon: nextCaps.occasionSealIconPicker ? f.occasionIcon : 'heart',
                     gallery: clipGalleryUrlsForTier(nextTier, normalizedGalleryUrls(f.gallery)),
+                    passwordEnabled: nextCaps.passwordToggle ? f.passwordEnabled : false,
+                    giftAccessPassword: nextCaps.passwordToggle ? f.giftAccessPassword : '',
                   }
                 })
               }}
@@ -1055,18 +1133,43 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
         {showSettingsToggles ? (
           <div className="page-settings-toggles" role="group" aria-label="Page options">
             {caps.passwordToggle ? (
-              <label className="settings-toggle-row">
-                <input
-                  type="checkbox"
-                  className="settings-toggle-input"
-                  checked={form.passwordEnabled}
-                  onChange={(e) => setForm({ ...form, passwordEnabled: e.target.checked })}
-                />
-                <span className="settings-toggle-body">
-                  <span className="settings-toggle-title">Password protected (future)</span>
-                  <span className="settings-toggle-hint">Reserved for a future release; no visitor password gate yet.</span>
-                </span>
-              </label>
+              <div className="settings-password-block">
+                <label className="settings-toggle-row">
+                  <input
+                    type="checkbox"
+                    className="settings-toggle-input"
+                    checked={form.passwordEnabled}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        passwordEnabled: e.target.checked,
+                        giftAccessPassword: e.target.checked ? form.giftAccessPassword : '',
+                      })
+                    }
+                  />
+                  <span className="settings-toggle-body">
+                    <span className="settings-toggle-title">Password protect this gift page</span>
+                    <span className="settings-toggle-hint">
+                      Premium only. Visitors enter your passphrase before they see the envelope, message, or media. Uses a simple browser check—fine for a private gift link, not for high-security secrets.
+                    </span>
+                  </span>
+                </label>
+                {form.passwordEnabled ? (
+                  <label className="form-field-stack settings-password-field">
+                    <span className="settings-password-label">Visitor passphrase</span>
+                    <input
+                      type="password"
+                      value={form.giftAccessPassword}
+                      onChange={(e) => setForm({ ...form, giftAccessPassword: e.target.value })}
+                      autoComplete="new-password"
+                      placeholder="Choose a memorable phrase"
+                    />
+                    <span className="field-hint">
+                      Share this only with your recipient. If left empty while the toggle is on, the public page will not require a password.
+                    </span>
+                  </label>
+                ) : null}
+              </div>
             ) : null}
             {caps.timedUnlockToggle ? (
               <label className="settings-toggle-row">

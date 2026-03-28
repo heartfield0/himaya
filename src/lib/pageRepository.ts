@@ -53,6 +53,7 @@ const toCustomerPage = (raw: Record<string, unknown>, id: string): CustomerPage 
   updatedAt: toIso(raw.updatedAt),
   themePreset: (raw.themePreset as CustomerPage['themePreset']) ?? 'classic',
   passwordEnabled: Boolean(raw.passwordEnabled),
+  giftAccessPassword: typeof raw.giftAccessPassword === 'string' ? raw.giftAccessPassword : '',
   timedUnlockEnabled: Boolean(raw.timedUnlockEnabled),
   notifyOnOpen: raw.notifyOnOpen === undefined ? true : Boolean(raw.notifyOnOpen),
   musicAutoplay: Boolean(raw.musicAutoplay),

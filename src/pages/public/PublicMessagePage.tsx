@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { Flower2, Heart, Lock, Music2, Sparkles } from 'lucide-react'
 import himayaMark from '../../assets/logo/himaya-mark.png'
+import { GalleryLightbox } from '../../components/public/GalleryLightbox'
+import {
+  constantTimeEqualStrings,
+  giftPasswordGateActive,
+  readGiftUnlockFromSession,
+  writeGiftUnlockToSession,
+} from '../../lib/giftPagePassword'
 import { pageRepository } from '../../lib/pageRepository'
 import {
   clipGalleryUrlsForTier,
@@ -27,6 +34,10 @@ export default function PublicMessagePage() {
   const [hasError, setHasError] = useState(false)
   const [hasOpenedIntro, setHasOpenedIntro] = useState(false)
   const [isOpening, setIsOpening] = useState(false)
+  const [giftUnlocked, setGiftUnlocked] = useState(false)
+  const [passwordAttempt, setPasswordAttempt] = useState('')
+  const [passwordGateError, setPasswordGateError] = useState<string | null>(null)
+  const [galleryLightboxIndex, setGalleryLightboxIndex] = useState<number | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const introTimersRef = useRef<number[]>([])
 
@@ -35,6 +46,14 @@ export default function PublicMessagePage() {
     introTimersRef.current = []
     setHasOpenedIntro(false)
     setIsOpening(false)
+    setPasswordAttempt('')
+    setPasswordGateError(null)
+    setGalleryLightboxIndex(null)
+    if (slug) {
+      setGiftUnlocked(readGiftUnlockFromSession(slug))
+    } else {
+      setGiftUnlocked(false)
+    }
   }, [slug])
 
   useEffect(() => {
@@ -62,10 +81,14 @@ export default function PublicMessagePage() {
 
         setPage(current)
 
-        void pageRepository.incrementView(slug).then((viewed) => {
-          if (!isMounted || !viewed) return
-          setPage(viewed)
-        })
+        const gate = giftPasswordGateActive(current)
+        const alreadyUnlocked = readGiftUnlockFromSession(slug)
+        if (!gate || alreadyUnlocked) {
+          void pageRepository.incrementView(slug).then((viewed) => {
+            if (!isMounted || !viewed) return
+            setPage(viewed)
+          })
+        }
       } catch (error) {
         console.error('[Himaya] Failed to load public page:', error)
         if (!isMounted) return
@@ -84,8 +107,9 @@ export default function PublicMessagePage() {
   }, [slug])
 
   const tierCaps = page ? getPackageCapabilities(page.packageType) : null
-  const giftIntroEnabled = tierCaps?.giftIntroEnvelope ?? false
-  const contentUnlocked = !giftIntroEnabled || hasOpenedIntro
+  const needsPasswordGate = Boolean(page && giftPasswordGateActive(page) && !giftUnlocked)
+  const giftIntroEnabled = !needsPasswordGate && (tierCaps?.giftIntroEnvelope ?? false)
+  const contentUnlocked = !needsPasswordGate && (!giftIntroEnabled || hasOpenedIntro)
 
   const unlockPending =
     !!page &&
@@ -160,6 +184,27 @@ export default function PublicMessagePage() {
     }
   }, [contentUnlocked, slug, audioSrc, wantMusicAutoplay, unlockPending])
 
+  const handleGiftPasswordSubmit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!page || !slug) return
+    const expected = page.giftAccessPassword.trim()
+    if (!expected) {
+      setPasswordGateError('This page is not ready for visitors yet.')
+      return
+    }
+    if (!constantTimeEqualStrings(passwordAttempt.trim(), expected)) {
+      setPasswordGateError("That isn't the right phrase. Take another gentle try.")
+      return
+    }
+    writeGiftUnlockToSession(slug)
+    setGiftUnlocked(true)
+    setPasswordGateError(null)
+    setPasswordAttempt('')
+    void pageRepository.incrementView(slug).then((viewed) => {
+      if (viewed) setPage(viewed)
+    })
+  }
+
   const handleOpenLetter = () => {
     if (isOpening || hasOpenedIntro) return
     setIsOpening(true)
@@ -218,6 +263,51 @@ export default function PublicMessagePage() {
           <div className="public-page-custom-bg-scrim" aria-hidden />
         </>
       ) : null}
+
+      {needsPasswordGate ? (
+        <div className="public-password-gate" role="dialog" aria-modal="true" aria-labelledby="public-password-gate-title">
+          <div className="public-password-gate-bg" aria-hidden />
+          <div className="public-password-gate-inner">
+            <img src={himayaMark} alt="" className="public-password-gate-mark" decoding="async" />
+            <p id="public-password-gate-title" className="public-password-gate-brand">
+              Himaya
+            </p>
+            <p className="public-password-gate-tagline">A private gift awaits</p>
+            <p className="public-password-gate-copy">
+              This page has been sealed with a passphrase. Enter it to open your message—then you&apos;ll see the full experience.
+            </p>
+            <form className="public-password-gate-form" onSubmit={handleGiftPasswordSubmit}>
+              <label className="public-password-gate-label">
+                <span className="public-password-gate-label-text">
+                  <Lock size={15} strokeWidth={2} aria-hidden /> Passphrase
+                </span>
+                <input
+                  type="password"
+                  className="public-password-gate-input"
+                  value={passwordAttempt}
+                  onChange={(ev) => {
+                    setPasswordAttempt(ev.target.value)
+                    if (passwordGateError) setPasswordGateError(null)
+                  }}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  placeholder="Enter the phrase you were given"
+                />
+              </label>
+              {passwordGateError ? (
+                <p className="public-password-gate-error" role="alert">
+                  {passwordGateError}
+                </p>
+              ) : null}
+              <button type="submit" className="public-password-gate-submit">
+                Unlock gift
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
       {giftIntroEnabled ? (
         <div
           className={`public-intro-overlay${isOpening ? ' public-intro-overlay--opening' : ''}${introOverlayDone ? ' public-intro-overlay--done' : ''}`}
@@ -276,6 +366,7 @@ export default function PublicMessagePage() {
         </div>
       ) : null}
 
+      {!needsPasswordGate ? (
       <div
         className="public-main-reveal"
         aria-hidden={!contentUnlocked}
@@ -347,12 +438,40 @@ export default function PublicMessagePage() {
             ) : null}
 
             {content.gallery.length > 0 ? (
-              <section className="public-card">
-                <p className="section-kicker">Memory Gallery</p>
-                <div className="gallery-grid">
-                  {content.gallery.map((image) => (
-                    <img key={image} src={image} alt="Gift memory" loading="lazy" />
-                  ))}
+              <section className="public-card memory-gallery-card">
+                <p className="section-kicker memory-gallery-kicker">Memory Gallery</p>
+                <div className="memory-gallery">
+                  <button
+                    type="button"
+                    className={`memory-gallery-featured${content.gallery.length === 1 ? ' memory-gallery-featured--solo' : ''}`}
+                    onClick={() => setGalleryLightboxIndex(0)}
+                  >
+                    <span className="memory-gallery-featured-inner">
+                      <img
+                        src={content.gallery[0]}
+                        alt=""
+                        loading="eager"
+                        decoding="async"
+                      />
+                      {content.gallery.length > 1 ? (
+                        <span className="memory-gallery-featured-shine" aria-hidden />
+                      ) : null}
+                    </span>
+                  </button>
+                  {content.gallery.length > 1 ? (
+                    <div className="memory-gallery-mosaic">
+                      {content.gallery.slice(1).map((image, i) => (
+                        <button
+                          key={`${image}-${i + 1}`}
+                          type="button"
+                          className="memory-gallery-tile"
+                          onClick={() => setGalleryLightboxIndex(i + 1)}
+                        >
+                          <img src={image} alt="" loading="lazy" decoding="async" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </section>
             ) : null}
@@ -394,6 +513,16 @@ export default function PublicMessagePage() {
           <small>Premium handmade gifting experiences</small>
         </footer>
       </div>
+      ) : null}
+
+      {galleryLightboxIndex !== null && content.gallery.length > 0 ? (
+        <GalleryLightbox
+          key={galleryLightboxIndex}
+          images={content.gallery}
+          initialIndex={galleryLightboxIndex}
+          onClose={() => setGalleryLightboxIndex(null)}
+        />
+      ) : null}
     </article>
   )
 }
