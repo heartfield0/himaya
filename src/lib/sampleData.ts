@@ -35,6 +35,9 @@ export const samplePages: CustomerPage[] = [
     timedUnlockEnabled: false,
     notifyOnOpen: true,
     musicAutoplay: false,
+    themeAccentColor: '',
+    themeBackgroundImageUrl: '',
+    occasionIcon: 'cake',
   },
   {
     id: 'pg_002',
@@ -61,6 +64,9 @@ export const samplePages: CustomerPage[] = [
     timedUnlockEnabled: false,
     notifyOnOpen: true,
     musicAutoplay: false,
+    themeAccentColor: '',
+    themeBackgroundImageUrl: '',
+    occasionIcon: 'ring',
   },
   {
     id: 'pg_003',
@@ -87,6 +93,9 @@ export const samplePages: CustomerPage[] = [
     timedUnlockEnabled: true,
     notifyOnOpen: true,
     musicAutoplay: false,
+    themeAccentColor: '',
+    themeBackgroundImageUrl: '',
+    occasionIcon: 'heart',
   },
   {
     id: 'pg_004',
@@ -116,5 +125,8 @@ export const samplePages: CustomerPage[] = [
     timedUnlockEnabled: false,
     notifyOnOpen: false,
     musicAutoplay: false,
+    themeAccentColor: '',
+    themeBackgroundImageUrl: '',
+    occasionIcon: 'flower',
   },
 ]

@@ -4,16 +4,20 @@ import { Flower2, Heart, Lock, Music2, Sparkles } from 'lucide-react'
 import himayaMark from '../../assets/logo/himaya-mark.png'
 import { pageRepository } from '../../lib/pageRepository'
 import {
-  normalizedGalleryUrls,
-  parseDirectAudioUrl,
-  parseVideoUrl,
-} from '../../lib/mediaUrls'
+  clipGalleryUrlsForTier,
+  getPackageCapabilities,
+  publicMusicAutoplayAllowed,
+} from '../../lib/packageCapabilities'
+import { normalizedGalleryUrls, parseDirectAudioUrl, parseVideoUrl } from '../../lib/mediaUrls'
+import { resolvePublicThemeClass } from '../../lib/publicTheme'
+import { OccasionSealIcon, resolvePublicEnvelopeSealIcon } from '../../lib/occasionSealIcon'
+import { accentCssVariables, resolvePublicPremiumAccentHex, resolvePublicPremiumBackgroundUrl } from '../../lib/themeAccent'
 import type { CustomerPage } from '../../types/customerPage'
 
-/** Envelope flap / letter motion (ms). */
-const INTRO_MOTION_MS = 1200
-/** Overlay crossfade after motion (ms). */
-const INTRO_FADE_MS = 480
+/** Envelope 3D open + letter lift (ms) — total perceived “opening” ~1.3s. */
+const INTRO_MOTION_MS = 1300
+/** Overlay fade after motion completes (ms). */
+const INTRO_FADE_MS = 380
 
 export default function PublicMessagePage() {
   const { slug } = useParams()
@@ -79,7 +83,15 @@ export default function PublicMessagePage() {
     }
   }, [slug])
 
-  const unlockPending = page?.unlockAt ? new Date(page.unlockAt).getTime() > viewedAtMs : false
+  const tierCaps = page ? getPackageCapabilities(page.packageType) : null
+  const giftIntroEnabled = tierCaps?.giftIntroEnvelope ?? false
+  const contentUnlocked = !giftIntroEnabled || hasOpenedIntro
+
+  const unlockPending =
+    !!page &&
+    !!tierCaps?.publicTimedUnlock &&
+    !!page.unlockAt &&
+    new Date(page.unlockAt).getTime() > viewedAtMs
 
   const content = useMemo(() => {
     if (!page) {
@@ -93,11 +105,15 @@ export default function PublicMessagePage() {
       }
     }
 
+    const caps = getPackageCapabilities(page.packageType)
     const showMessage = page.shortMessage.trim().length > 0
     const showLetter = page.longLetter.trim().length > 0
-    const video = parseVideoUrl(page.videoUrl)
-    const gallery = normalizedGalleryUrls(page.gallery)
-    const audioSrc = parseDirectAudioUrl(page.musicUrl)
+    const video = caps.video ? parseVideoUrl(page.videoUrl) : null
+    const gallery =
+      caps.maxGalleryImages > 0
+        ? clipGalleryUrlsForTier(page.packageType, normalizedGalleryUrls(page.gallery))
+        : []
+    const audioSrc = caps.music ? parseDirectAudioUrl(page.musicUrl) : null
 
     const hasAnyBody = showMessage || showLetter || video !== null || gallery.length > 0
     const showKeepsakePlaceholder = !hasAnyBody
@@ -106,10 +122,10 @@ export default function PublicMessagePage() {
   }, [page])
 
   const audioSrc = content.audioSrc
-  const wantMusicAutoplay = page?.musicAutoplay === true
+  const wantMusicAutoplay = page ? publicMusicAutoplayAllowed(page.packageType, page.musicAutoplay === true) : false
 
   useEffect(() => {
-    if (!hasOpenedIntro || !audioSrc || !wantMusicAutoplay || unlockPending) return
+    if (!contentUnlocked || !audioSrc || !wantMusicAutoplay || unlockPending) return
 
     const el = audioRef.current
     if (!el) return
@@ -142,7 +158,7 @@ export default function PublicMessagePage() {
       window.clearTimeout(retryId)
       el.removeEventListener('loadedmetadata', onMeta)
     }
-  }, [hasOpenedIntro, slug, audioSrc, wantMusicAutoplay, unlockPending])
+  }, [contentUnlocked, slug, audioSrc, wantMusicAutoplay, unlockPending])
 
   const handleOpenLetter = () => {
     if (isOpening || hasOpenedIntro) return
@@ -157,62 +173,113 @@ export default function PublicMessagePage() {
   }
 
   if (!slug) return <Navigate to="/login" replace />
-  if (isLoading) return <div className="public-page"><p>Loading your gift...</p></div>
-  if (hasError) return <div className="public-page"><p>Something went wrong while opening this gift page. Please try again.</p></div>
-  if (!page) return <div className="public-page"><p>Page not found.</p></div>
 
-  const introOverlayDone = hasOpenedIntro && !isOpening
+  if (isLoading) {
+    return (
+      <div className="public-page theme-classic">
+        <p>Loading your gift...</p>
+      </div>
+    )
+  }
+  if (hasError) {
+    return (
+      <div className="public-page theme-classic">
+        <p>Something went wrong while opening this gift page. Please try again.</p>
+      </div>
+    )
+  }
+  if (!page) {
+    return (
+      <div className="public-page theme-classic">
+        <p>Page not found.</p>
+      </div>
+    )
+  }
+
+  const themeClass = resolvePublicThemeClass(page.packageType, page.themePreset)
+  const premiumAccentHex = resolvePublicPremiumAccentHex(page)
+  const premiumBgUrl = resolvePublicPremiumBackgroundUrl(page)
+  const articleAccentStyle = premiumAccentHex ? accentCssVariables(premiumAccentHex) : undefined
+  const introOverlayDone = !giftIntroEnabled || (hasOpenedIntro && !isOpening)
+  const envelopeSealIcon = resolvePublicEnvelopeSealIcon(page.packageType, page.occasionIcon)
 
   return (
     <article
-      className={`public-page${hasOpenedIntro ? ' public-page--revealed' : ''}`}
+      className={`public-page ${themeClass}${contentUnlocked ? ' public-page--revealed' : ''}${premiumAccentHex ? ' public-page--custom-accent' : ''}${premiumBgUrl ? ' public-page--custom-bg' : ''}`}
+      style={articleAccentStyle}
     >
-      <div
-        className={`public-intro-overlay${isOpening ? ' public-intro-overlay--opening' : ''}${introOverlayDone ? ' public-intro-overlay--done' : ''}`}
-        aria-hidden={hasOpenedIntro}
-        {...(hasOpenedIntro ? { inert: true } : {})}
-      >
-        <div className="public-intro-overlay-bg" aria-hidden="true" />
-        <div className="public-intro-inner">
-          <img
-            src={himayaMark}
-            alt=""
-            className="public-intro-mark"
-            decoding="async"
+      {premiumBgUrl ? (
+        <>
+          <div
+            className="public-page-custom-bg"
+            style={{ backgroundImage: `url(${JSON.stringify(premiumBgUrl)})` }}
+            aria-hidden
           />
-          <p className="public-intro-brand">Himaya</p>
-          <p className="public-intro-subtitle">A message prepared just for you</p>
+          <div className="public-page-custom-bg-scrim" aria-hidden />
+        </>
+      ) : null}
+      {giftIntroEnabled ? (
+        <div
+          className={`public-intro-overlay${isOpening ? ' public-intro-overlay--opening' : ''}${introOverlayDone ? ' public-intro-overlay--done' : ''}`}
+          aria-hidden={hasOpenedIntro}
+          {...(hasOpenedIntro ? { inert: true } : {})}
+        >
+          <div className="public-intro-overlay-bg" aria-hidden="true" />
+          <div className="public-intro-inner">
+            <img
+              src={himayaMark}
+              alt=""
+              className="public-intro-mark"
+              decoding="async"
+            />
+            <p className="public-intro-brand">Himaya</p>
+            <p className="public-intro-subtitle">A message prepared just for you</p>
 
-          <div className={`public-intro-envelope${isOpening ? ' public-intro-envelope--opening' : ''}`}>
-            <div className="public-intro-envelope-shadow" aria-hidden="true" />
-            <div className="public-intro-envelope-back" />
-            <div className="public-intro-letter" aria-hidden="true">
-              <span className="public-intro-letter-line" />
-              <span className="public-intro-letter-line" />
-              <span className="public-intro-letter-line short" />
+            <div className={`public-intro-envelope${isOpening ? ' public-intro-envelope--opening' : ''}`}>
+              <div className="public-intro-envelope-shadow" aria-hidden="true" />
+              <div className="public-intro-envelope-body">
+                <div className="public-intro-envelope-back">
+                  <span className="public-intro-envelope-texture" aria-hidden="true" />
+                </div>
+                <div className="public-intro-envelope-pocket" aria-hidden="true" />
+                <div className="public-intro-letter" aria-hidden="true">
+                  <span className="public-intro-letter-line" />
+                  <span className="public-intro-letter-line" />
+                  <span className="public-intro-letter-line short" />
+                </div>
+                <div className="public-intro-flap-3d" aria-hidden="true">
+                  <div className="public-intro-flap">
+                    <span className="public-intro-flap-shade" aria-hidden="true" />
+                  </div>
+                </div>
+              </div>
+              {/** Outside preserve-3d body so the flap’s 3D depth cannot paint over the seal */}
+              <div className="public-intro-seal" aria-hidden="true">
+                <span className="public-intro-seal-ring" aria-hidden="true" />
+                <span className="public-intro-seal-wax" />
+                <span className="public-intro-seal-icon">
+                  <OccasionSealIcon id={envelopeSealIcon} />
+                </span>
+              </div>
             </div>
-            <div className="public-intro-flap" aria-hidden="true" />
-            <div className="public-intro-seal" aria-hidden="true">
-              <Heart size={20} strokeWidth={1.35} />
-            </div>
+
+            <button
+              type="button"
+              className="public-intro-open-btn"
+              onClick={handleOpenLetter}
+              disabled={isOpening}
+              aria-busy={isOpening}
+            >
+              {isOpening ? 'Opening…' : 'Open Letter'}
+            </button>
           </div>
-
-          <button
-            type="button"
-            className="public-intro-open-btn"
-            onClick={handleOpenLetter}
-            disabled={isOpening}
-            aria-busy={isOpening}
-          >
-            {isOpening ? 'Opening…' : 'Open Letter'}
-          </button>
         </div>
-      </div>
+      ) : null}
 
       <div
         className="public-main-reveal"
-        aria-hidden={!hasOpenedIntro}
-        {...(!hasOpenedIntro ? { inert: true } : {})}
+        aria-hidden={!contentUnlocked}
+        {...(!contentUnlocked ? { inert: true } : {})}
       >
         <div className="public-top-glow" aria-hidden="true" />
         <header className="public-hero">
@@ -301,7 +368,7 @@ export default function PublicMessagePage() {
           </div>
         )}
 
-        {hasOpenedIntro && !unlockPending && content.audioSrc ? (
+        {contentUnlocked && !unlockPending && tierCaps?.music && content.audioSrc ? (
           <div className="public-music-dock" aria-label="Background music">
             <p className="public-music-label">
               <Music2 size={14} aria-hidden="true" /> Ambient music

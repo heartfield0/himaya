@@ -14,9 +14,10 @@ export function safeSlugForStoragePath(slug: string): string {
   return (s || 'untitled').slice(0, 96)
 }
 
-export function sanitizeUploadFilename(name: string): string {
+/** `emptyBasenameFallback` is used when the filename has no safe characters (e.g. `image`, `video`). */
+export function sanitizeUploadFilename(name: string, emptyBasenameFallback = 'audio'): string {
   const base = name.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^\.+/, '')
-  return (base || 'audio').slice(0, 120)
+  return (base || emptyBasenameFallback).slice(0, 120)
 }
 
 function guessAudioContentType(file: File): string {

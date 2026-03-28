@@ -1,23 +1,58 @@
-import { useCallback, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { QRCodeCanvas } from 'qrcode.react'
-import { parseDirectAudioUrl, parseVideoUrl } from '../../lib/mediaUrls'
+import { normalizedGalleryUrls, parseDirectAudioUrl, parseVideoUrl } from '../../lib/mediaUrls'
+import {
+  accentPickerDisplayValue,
+  normalizeAccentForStorage,
+  parseHexColor,
+} from '../../lib/themeAccent'
+import {
+  ALLOWED_GALLERY_IMAGE_EXTENSIONS,
+  uploadGalleryImage,
+  validateGalleryImageFileForUpload,
+} from '../../lib/uploadGalleryImage'
+import {
+  uploadMessageVideo,
+  validateMessageVideoFileForUpload,
+} from '../../lib/uploadMessageVideo'
 import {
   formatStorageUploadError,
   uploadMessageMusic,
   validateAudioFileForUpload,
 } from '../../lib/uploadAudio'
+import {
+  uploadThemeBackgroundImage,
+  validateThemeBackgroundFile,
+} from '../../lib/uploadThemeBackground'
+import { OCCASION_SEAL_CHOICES, suggestOccasionSealIcon } from '../../lib/occasionSealIcon'
+import { clipGalleryUrlsForTier, getPackageCapabilities, effectiveThemePreset } from '../../lib/packageCapabilities'
 import type { CustomerPage, PackageType, PageStatus } from '../../types/customerPage'
 
 const AUDIO_INPUT_ACCEPT = '.mp3,.wav,.m4a,.aac,.ogg,.opus,.flac,audio/*'
+const THEME_BG_INPUT_ACCEPT = '.png,.jpg,.jpeg,.webp,image/*'
+const GALLERY_INPUT_ACCEPT = `${ALLOWED_GALLERY_IMAGE_EXTENSIONS.join(',')},image/*`
+const MESSAGE_VIDEO_INPUT_ACCEPT = '.mp4,.webm,.ogg,.ogv,.mov,video/*'
+
+const THEME_OPTION_LABEL: Record<CustomerPage['themePreset'], string> = {
+  classic: 'Classic',
+  rose: 'Rose',
+  'warm-minimal': 'Warm Minimal',
+}
 
 function BackgroundMusicUpload({
   musicUrl,
   slugForPath,
   onMusicUrlChange,
+  showAutoplayHint = true,
+  showFieldLabel = true,
 }: {
   musicUrl: string
   slugForPath: string
   onMusicUrlChange: (url: string) => void
+  /** Hide when the current tier does not offer autoplay (hint only references Page settings). */
+  showAutoplayHint?: boolean
+  /** Omit when the parent section heading already names this control (e.g. Basic tier). */
+  showFieldLabel?: boolean
 }) {
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -69,7 +104,7 @@ function BackgroundMusicUpload({
 
   return (
     <div className="form-field-stack">
-      <span className="form-field-inline-label">Background music</span>
+      {showFieldLabel ? <span className="form-field-inline-label">Background music</span> : null}
       <span className="field-hint">
         Upload an audio file for the public page. Drag and drop here or choose a file. The link is stored as your page&apos;s music URL.
       </span>
@@ -180,9 +215,530 @@ function BackgroundMusicUpload({
         </p>
       ) : null}
 
-      <p className="field-hint">
-        &quot;Try music autoplay&quot; in Page settings is best-effort; browsers may block sound until the visitor taps play.
-      </p>
+      {showAutoplayHint ? (
+        <p className="field-hint">
+          &quot;Try music autoplay&quot; in Page settings is best-effort; browsers may block sound until the visitor taps play.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function ThemeBackgroundUpload({
+  imageUrl,
+  slugForPath,
+  onImageUrlChange,
+}: {
+  imageUrl: string
+  slugForPath: string
+  onImageUrlChange: (url: string) => void
+}) {
+  const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
+
+  const processFile = useCallback(
+    async (file: File) => {
+      setError(null)
+      const invalid = validateThemeBackgroundFile(file)
+      if (invalid) {
+        setError(invalid)
+        return
+      }
+      setIsUploading(true)
+      try {
+        const url = await uploadThemeBackgroundImage(file, slugForPath)
+        onImageUrlChange(url)
+      } catch (e) {
+        setError(formatStorageUploadError(e))
+        console.error('[Himaya Storage] Theme background upload failed', e)
+      } finally {
+        setIsUploading(false)
+      }
+    },
+    [slugForPath, onImageUrlChange],
+  )
+
+  const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (file) void processFile(file)
+  }
+
+  const openPicker = () => {
+    if (!isUploading) inputRef.current?.click()
+  }
+
+  return (
+    <div className="form-field-stack">
+      <span className="form-field-inline-label">Page background image</span>
+      <span className="field-hint">
+        Full-page backdrop on the public gift page (cover, centered). PNG or JPG from Canva works well. Drag and drop or choose a file.
+      </span>
+      <div className="audio-dropzone-wrap">
+        <input
+          ref={inputRef}
+          type="file"
+          accept={THEME_BG_INPUT_ACCEPT}
+          className="audio-file-input"
+          onChange={onInputChange}
+          aria-label="Choose background image"
+        />
+        <div
+          className={`audio-dropzone${isDragging ? ' audio-dropzone--active' : ''}${isUploading ? ' audio-dropzone--uploading' : ''}`}
+          onDragEnter={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (isUploading) return
+            dragDepth.current += 1
+            setIsDragging(true)
+          }}
+          onDragOver={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (!isUploading) e.dataTransfer.dropEffect = 'copy'
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            dragDepth.current = Math.max(0, dragDepth.current - 1)
+            if (dragDepth.current === 0) setIsDragging(false)
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            dragDepth.current = 0
+            setIsDragging(false)
+            if (isUploading) return
+            const file = e.dataTransfer.files?.[0]
+            if (file) void processFile(file)
+          }}
+          onClick={openPicker}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              openPicker()
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-busy={isUploading}
+        >
+          {isUploading ? (
+            <p className="audio-upload-status">Uploading…</p>
+          ) : (
+            <p className="audio-dropzone-text">
+              Drop image here or <span className="audio-dropzone-em">choose a file</span>
+            </p>
+          )}
+          <p className="field-hint audio-dropzone-formats">.png, .jpg, .jpeg, .webp · max 15 MB</p>
+        </div>
+      </div>
+      {error ? <p className="field-hint field-hint-warn">{error}</p> : null}
+      {imageUrl.trim() ? (
+        <>
+          <div className="theme-bg-preview-wrap">
+            <img src={imageUrl} alt="" className="theme-bg-preview-thumb" decoding="async" />
+          </div>
+          <div className="audio-upload-actions">
+            <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); openPicker() }}>
+              Replace image
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                setError(null)
+                onImageUrlChange('')
+              }}
+            >
+              Remove background
+            </button>
+          </div>
+          <p className="field-hint audio-url-readonly" title={imageUrl}>
+            {imageUrl}
+          </p>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function MessageVideoUpload({
+  videoUrl,
+  slugForPath,
+  onVideoUrlChange,
+}: {
+  videoUrl: string
+  slugForPath: string
+  onVideoUrlChange: (url: string) => void
+}) {
+  const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
+
+  const presentation = useMemo(() => parseVideoUrl(videoUrl.trim()), [videoUrl])
+
+  const processFile = useCallback(
+    async (file: File) => {
+      setError(null)
+      const invalid = validateMessageVideoFileForUpload(file)
+      if (invalid) {
+        setError(invalid)
+        return
+      }
+      setIsUploading(true)
+      try {
+        console.log('[Himaya Admin] message video upload requested', {
+          name: file.name,
+          type: file.type || '(empty)',
+          size: file.size,
+          slugForPath,
+        })
+        const url = await uploadMessageVideo(file, slugForPath)
+        onVideoUrlChange(url)
+        console.log('[Himaya Admin] message video URL saved to form')
+      } catch (e) {
+        const message = formatStorageUploadError(e)
+        console.error('[Himaya Admin] message video upload failed', e)
+        setError(message)
+      } finally {
+        setIsUploading(false)
+      }
+    },
+    [slugForPath, onVideoUrlChange],
+  )
+
+  const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (file) void processFile(file)
+  }
+
+  const openPicker = () => {
+    if (!isUploading) inputRef.current?.click()
+  }
+
+  const hasVideo = Boolean(videoUrl.trim())
+
+  return (
+    <div className="form-field-stack admin-message-video">
+      <span className="form-field-inline-label">Video message</span>
+      <span className="field-hint">
+        Upload one video file for the public page (Standard &amp; Premium: one video). Drag and drop or choose a file. Firebase Storage returns a direct link compatible with the existing player.
+      </span>
+
+      <div className="audio-dropzone-wrap">
+        <input
+          ref={inputRef}
+          type="file"
+          accept={MESSAGE_VIDEO_INPUT_ACCEPT}
+          className="audio-file-input"
+          onChange={onInputChange}
+          aria-label="Choose video file"
+        />
+        {!hasVideo ? (
+          <div
+            className={`audio-dropzone${isDragging ? ' audio-dropzone--active' : ''}${isUploading ? ' audio-dropzone--uploading' : ''}`}
+            onDragEnter={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (isUploading) return
+              dragDepth.current += 1
+              setIsDragging(true)
+            }}
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (!isUploading) e.dataTransfer.dropEffect = 'copy'
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              dragDepth.current = Math.max(0, dragDepth.current - 1)
+              if (dragDepth.current === 0) setIsDragging(false)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              dragDepth.current = 0
+              setIsDragging(false)
+              if (isUploading) return
+              const file = e.dataTransfer.files?.[0]
+              if (file) void processFile(file)
+            }}
+            onClick={openPicker}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                openPicker()
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-busy={isUploading}
+          >
+            {isUploading ? (
+              <p className="audio-upload-status">Uploading video…</p>
+            ) : (
+              <p className="audio-dropzone-text">
+                Drop video here or <span className="audio-dropzone-em">choose a file</span>
+              </p>
+            )}
+            <p className="field-hint audio-dropzone-formats">.mp4, .webm, .ogg, .ogv, .mov · max 120 MB</p>
+          </div>
+        ) : null}
+      </div>
+
+      {error ? <p className="field-hint field-hint-warn">{error}</p> : null}
+
+      {hasVideo ? (
+        <div className="admin-video-preview admin-video-preview-block" aria-live="polite">
+          {presentation?.kind === 'youtube' ? (
+            <div className="video-frame video-frame-mini">
+              <iframe
+                src={presentation.embedSrc}
+                title="Video preview"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            </div>
+          ) : presentation?.kind === 'direct' ? (
+            <div className="video-frame video-frame-mini video-frame-native">
+              <video src={presentation.src} controls playsInline preload="metadata" />
+            </div>
+          ) : (
+            <p className="field-hint field-hint-warn">
+              This saved URL is not recognized as YouTube or a direct video file. Remove it and upload again, or replace with a supported file.
+            </p>
+          )}
+          <div className="audio-upload-actions">
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={() => {
+                setError(null)
+                openPicker()
+              }}
+              disabled={isUploading}
+            >
+              {isUploading ? 'Uploading…' : 'Replace video'}
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                setError(null)
+                onVideoUrlChange('')
+              }}
+              disabled={isUploading}
+            >
+              Remove video
+            </button>
+          </div>
+          <p className="field-hint audio-url-readonly" title={videoUrl}>
+            {videoUrl}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function GalleryImagesUpload({
+  urls,
+  maxCount,
+  slugForPath,
+  onUrlsChange,
+}: {
+  urls: string[]
+  maxCount: number
+  slugForPath: string
+  onUrlsChange: (next: string[]) => void
+}) {
+  const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadLabel, setUploadLabel] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [hint, setHint] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
+
+  const list = useMemo(() => normalizedGalleryUrls(urls), [urls])
+  const remaining = Math.max(0, maxCount - list.length)
+
+  const processFiles = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList).filter((f) => f.size > 0)
+      if (files.length === 0) return
+
+      setError(null)
+      setHint(null)
+
+      const room = maxCount - list.length
+      if (room <= 0) {
+        setError(`Gallery is full for this tier (${maxCount} images max). Remove an image to add more.`)
+        return
+      }
+
+      const toUpload = files.slice(0, room)
+      if (files.length > room) {
+        setHint(`${files.length - room} file(s) skipped — tier allows ${maxCount} images total (${list.length} already saved).`)
+      }
+
+      setIsUploading(true)
+      let acc = [...list]
+
+      try {
+        for (let i = 0; i < toUpload.length; i++) {
+          const file = toUpload[i]
+          setUploadLabel(`Uploading ${i + 1} of ${toUpload.length}…`)
+          const invalid = validateGalleryImageFileForUpload(file)
+          if (invalid) {
+            setError(invalid)
+            break
+          }
+          console.log('[Himaya Admin] gallery image upload requested', {
+            name: file.name,
+            index: i + 1,
+            of: toUpload.length,
+            slugForPath,
+          })
+          const url = await uploadGalleryImage(file, slugForPath)
+          acc = [...acc, url]
+          onUrlsChange(acc)
+          console.log('[Himaya Admin] gallery image appended, count', acc.length)
+        }
+      } catch (e) {
+        const message = formatStorageUploadError(e)
+        console.error('[Himaya Admin] gallery batch upload failed', e)
+        setError(message)
+      } finally {
+        setIsUploading(false)
+        setUploadLabel(null)
+      }
+    },
+    [list, maxCount, onUrlsChange, slugForPath],
+  )
+
+  const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const fl = e.target.files
+    e.target.value = ''
+    if (fl?.length) void processFiles(fl)
+  }
+
+  const openPicker = () => {
+    if (!isUploading && remaining > 0) inputRef.current?.click()
+  }
+
+  const removeAt = (index: number) => {
+    const next = list.filter((_, i) => i !== index)
+    onUrlsChange(next)
+    setError(null)
+    setHint(null)
+  }
+
+  return (
+    <div className="form-field-stack admin-gallery-upload">
+      <span className="form-field-inline-label">Gallery images</span>
+      <span className="field-hint">
+        Upload up to {maxCount} images for this tier. Drag and drop or choose files — URLs are stored in Firestore and shown on the public page as before.
+      </span>
+
+      {list.length > 0 ? (
+        <ul className="admin-gallery-grid" aria-label="Uploaded gallery images">
+          {list.map((url, index) => (
+            <li key={`${url}-${index}`} className="admin-gallery-tile">
+              <div className="admin-gallery-thumb-wrap">
+                <img src={url} alt="" className="admin-gallery-thumb" decoding="async" loading="lazy" />
+              </div>
+              <button
+                type="button"
+                className="ghost-btn admin-gallery-remove"
+                onClick={() => removeAt(index)}
+                aria-label={`Remove image ${index + 1}`}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {remaining > 0 ? (
+        <div className="audio-dropzone-wrap">
+          <input
+            ref={inputRef}
+            type="file"
+            accept={GALLERY_INPUT_ACCEPT}
+            className="audio-file-input"
+            onChange={onInputChange}
+            aria-label="Choose gallery images"
+            multiple
+          />
+          <div
+            className={`audio-dropzone${isDragging ? ' audio-dropzone--active' : ''}${isUploading ? ' audio-dropzone--uploading' : ''}`}
+            onDragEnter={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (isUploading) return
+              dragDepth.current += 1
+              setIsDragging(true)
+            }}
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (!isUploading) e.dataTransfer.dropEffect = 'copy'
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              dragDepth.current = Math.max(0, dragDepth.current - 1)
+              if (dragDepth.current === 0) setIsDragging(false)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              dragDepth.current = 0
+              setIsDragging(false)
+              if (isUploading) return
+              if (e.dataTransfer.files?.length) void processFiles(e.dataTransfer.files)
+            }}
+            onClick={openPicker}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                openPicker()
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-busy={isUploading}
+          >
+            {isUploading ? (
+              <p className="audio-upload-status">{uploadLabel ?? 'Uploading…'}</p>
+            ) : (
+              <p className="audio-dropzone-text">
+                Drop images here or <span className="audio-dropzone-em">choose files</span>
+              </p>
+            )}
+            <p className="field-hint audio-dropzone-formats">
+              {ALLOWED_GALLERY_IMAGE_EXTENSIONS.join(', ')} · max 15 MB each · {remaining} slot
+              {remaining === 1 ? '' : 's'} left
+            </p>
+          </div>
+        </div>
+      ) : (
+        <p className="field-hint">Gallery is full ({maxCount} images). Remove one to upload more.</p>
+      )}
+
+      {error ? <p className="field-hint field-hint-warn">{error}</p> : null}
+      {hint ? <p className="field-hint field-hint-warn">{hint}</p> : null}
     </div>
   )
 }
@@ -197,6 +753,7 @@ const defaultForm: Omit<CustomerPage, 'id' | 'createdAt' | 'updatedAt' | 'views'
   recipientName: '',
   senderName: '',
   occasion: '',
+  occasionIcon: 'heart',
   packageType: 'basic',
   title: '',
   subtitle: '',
@@ -212,6 +769,8 @@ const defaultForm: Omit<CustomerPage, 'id' | 'createdAt' | 'updatedAt' | 'views'
   timedUnlockEnabled: false,
   notifyOnOpen: true,
   musicAutoplay: false,
+  themeAccentColor: '',
+  themeBackgroundImageUrl: '',
 }
 
 const makeSlug = (value: string) =>
@@ -230,7 +789,6 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
         }
       : defaultForm,
   )
-  const [galleryInput, setGalleryInput] = useState((initial?.gallery ?? []).join('\n'))
 
   const publicUrl = useMemo(() => {
     const slug = form.slug || makeSlug(`${form.recipientName}-${form.occasion || 'gift'}`)
@@ -242,31 +800,89 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
     [form.slug, form.recipientName, form.occasion],
   )
 
-  const videoPresentation = useMemo(() => parseVideoUrl(form.videoUrl), [form.videoUrl])
+  const caps = useMemo(() => getPackageCapabilities(form.packageType), [form.packageType])
 
   const setMusicUrl = useCallback((url: string) => {
     setForm((prev) => ({ ...prev, musicUrl: url }))
   }, [])
 
+  const setVideoUrl = useCallback((url: string) => {
+    setForm((prev) => ({ ...prev, videoUrl: url }))
+  }, [])
+
+  const prevOccasionForSealRef = useRef<string | null>(null)
+  useEffect(() => {
+    const prev = prevOccasionForSealRef.current
+    if (prev === null) {
+      prevOccasionForSealRef.current = form.occasion
+      return
+    }
+    const prevSuggested = suggestOccasionSealIcon(prev)
+    if (form.occasionIcon !== prevSuggested) {
+      prevOccasionForSealRef.current = form.occasion
+      return
+    }
+    const nextSuggested = suggestOccasionSealIcon(form.occasion)
+    if (nextSuggested !== form.occasionIcon) {
+      setForm((f) => ({ ...f, occasionIcon: nextSuggested }))
+    }
+    prevOccasionForSealRef.current = form.occasion
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-sync when occasion text changes; comparing icon to prior suggestion uses current form.occasionIcon intentionally
+  }, [form.occasion])
+
+  useLayoutEffect(() => {
+    const allowed = getPackageCapabilities(form.packageType).themePresets
+    if ((allowed as readonly string[]).includes(form.themePreset)) return
+    setForm((f) => ({
+      ...f,
+      themePreset: (allowed[0] ?? 'classic') as CustomerPage['themePreset'],
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time hydrate when stored theme does not match tier
+  }, [])
+
+  const showVideoField = caps.video
+  const showGalleryField = caps.maxGalleryImages > 0
+  const showMusicField = caps.music
+  const showAnyMedia = showVideoField || showGalleryField || showMusicField
+  const showThemePicker = caps.themePresets.length > 1
+  const showSettingsToggles =
+    caps.passwordToggle || caps.timedUnlockToggle || caps.notifyOnOpen || caps.musicAutoplay
+
+  const mediaSectionTitle = (() => {
+    if (!showAnyMedia) return 'Media'
+    const v = showVideoField
+    const g = showGalleryField
+    const m = showMusicField
+    if (v && g && m) return 'Media'
+    if (v && m && !g) return 'Video & music'
+    if (v && g && !m) return 'Video & gallery'
+    if (m && g && !v) return 'Music & gallery'
+    if (v && !g && !m) return 'Video message'
+    if (g && !v && !m) return 'Gallery'
+    if (m && !v && !g) return 'Background music'
+    return 'Media'
+  })()
+
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const slug = form.slug || makeSlug(`${form.recipientName}-${form.occasion || 'gift'}`)
 
+    const capsSubmit = getPackageCapabilities(form.packageType)
     onSubmit({
       ...form,
       slug,
-      gallery: galleryInput
-        .split('\n')
-        .map((x) => x.trim())
-        .filter(Boolean),
+      themePreset: effectiveThemePreset(form.packageType, form.themePreset),
+      gallery: clipGalleryUrlsForTier(form.packageType, normalizedGalleryUrls(form.gallery)),
       unlockAt: form.unlockAt || null,
+      themeAccentColor: capsSubmit.customThemeBuilder ? normalizeAccentForStorage(form.themeAccentColor) : '',
+      themeBackgroundImageUrl: capsSubmit.customThemeBuilder ? form.themeBackgroundImageUrl.trim() : '',
+      occasionIcon: capsSubmit.occasionSealIconPicker ? form.occasionIcon : 'heart',
     })
   }
 
   return (
     <form className="page-form" onSubmit={submit}>
       <section className="form-card">
-        <p className="eyebrow">Section A</p>
         <h3>Basic Info</h3>
         <div className="form-grid">
           <label>
@@ -277,17 +893,64 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
             Sender Name
             <input value={form.senderName} onChange={(e) => setForm({ ...form, senderName: e.target.value })} required />
           </label>
-          <label>
+          <label className="form-field-stack">
             Occasion
             <input value={form.occasion} onChange={(e) => setForm({ ...form, occasion: e.target.value })} required />
+            {!caps.occasionSealIconPicker ? (
+              <span className="field-hint">
+                Standard and Premium can pick a custom icon on the envelope seal for the gift intro.
+              </span>
+            ) : (
+              <span className="field-hint">
+                The seal icon updates automatically from this line when it still matches the last suggestion — change the dropdown below to override.
+              </span>
+            )}
           </label>
-          <label>
+          {caps.occasionSealIconPicker ? (
+            <label>
+              Occasion icon (envelope seal)
+              <select
+                value={form.occasionIcon}
+                onChange={(e) =>
+                  setForm({ ...form, occasionIcon: e.target.value as CustomerPage['occasionIcon'] })
+                }
+              >
+                {OCCASION_SEAL_CHOICES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="form-field-stack">
             Package Tier
-            <select value={form.packageType} onChange={(e) => setForm({ ...form, packageType: e.target.value as PackageType })}>
-              <option value="basic">Basic</option>
-              <option value="standard">Standard</option>
-              <option value="premium">Premium</option>
+            <select
+              value={form.packageType}
+              onChange={(e) => {
+                const nextTier = e.target.value as PackageType
+                const allow = getPackageCapabilities(nextTier).themePresets
+                setForm((f) => {
+                  const nextCaps = getPackageCapabilities(nextTier)
+                  return {
+                    ...f,
+                    packageType: nextTier,
+                    themePreset: (allow as readonly string[]).includes(f.themePreset)
+                      ? f.themePreset
+                      : ((allow[0] ?? 'classic') as CustomerPage['themePreset']),
+                    occasionIcon: nextCaps.occasionSealIconPicker ? f.occasionIcon : 'heart',
+                    gallery: clipGalleryUrlsForTier(nextTier, normalizedGalleryUrls(f.gallery)),
+                  }
+                })
+              }}
+            >
+              <option value="basic">Basic — ₱100 add-on</option>
+              <option value="standard">Standard — ₱150</option>
+              <option value="premium">Premium — ₱250</option>
             </select>
+            <span className="field-hint">
+              Basic = ₱100 add-on · Standard = ₱150 · Premium = ₱250
+            </span>
           </label>
           <label>
             Page Title
@@ -301,7 +964,6 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
       </section>
 
       <section className="form-card">
-        <p className="eyebrow">Section B</p>
         <h3>Message Content</h3>
         <label className="form-field-stack">
           Short message
@@ -315,58 +977,43 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
         </label>
       </section>
 
-      <section className="form-card">
-        <p className="eyebrow">Section C</p>
-        <h3>Media</h3>
-        <div className="form-grid">
-          <div className="form-field-stack">
-            <label className="form-field-stack form-field-inline-label">
-              Video URL
-              <input
-                value={form.videoUrl}
-                onChange={(e) => setForm({ ...form, videoUrl: e.target.value })}
-                placeholder="YouTube link or direct .mp4 / .webm URL"
-              />
-              <span className="field-hint">Leave blank to hide video. YouTube watch, embed, Shorts, or a direct file URL.</span>
-            </label>
-            <div className="admin-video-preview" aria-live="polite">
-              {videoPresentation ? (
-                videoPresentation.kind === 'youtube' ? (
-                  <div className="video-frame video-frame-mini">
-                    <iframe
-                      src={videoPresentation.embedSrc}
-                      title="Video preview"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    />
-                  </div>
-                ) : (
-                  <div className="video-frame video-frame-mini video-frame-native">
-                    <video src={videoPresentation.src} controls playsInline preload="metadata" />
-                  </div>
-                )
-              ) : form.videoUrl.trim() ? (
-                <p className="field-hint field-hint-warn">
-                  This URL is not recognized as YouTube or a direct video file (.mp4, .webm, .ogg, .mov). Visitors will not see a video block until you use a supported link.
-                </p>
-              ) : (
-                <p className="field-hint">Preview appears when you paste a supported URL.</p>
-              )}
+      {showAnyMedia ? (
+        <section className="form-card">
+          <h3>{mediaSectionTitle}</h3>
+          {showVideoField || showMusicField ? (
+            <div className="form-grid">
+              {showVideoField ? (
+                <MessageVideoUpload
+                  videoUrl={form.videoUrl}
+                  slugForPath={storageSlug}
+                  onVideoUrlChange={setVideoUrl}
+                />
+              ) : null}
+              {showMusicField ? (
+                <BackgroundMusicUpload
+                  musicUrl={form.musicUrl}
+                  slugForPath={storageSlug}
+                  onMusicUrlChange={setMusicUrl}
+                  showAutoplayHint={caps.musicAutoplay}
+                  showFieldLabel={showVideoField || showGalleryField}
+                />
+              ) : null}
             </div>
-          </div>
-          <BackgroundMusicUpload musicUrl={form.musicUrl} slugForPath={storageSlug} onMusicUrlChange={setMusicUrl} />
-        </div>
-        <label className="form-field-stack">
-          Gallery image URLs (one per line)
-          <textarea rows={5} value={galleryInput} onChange={(e) => setGalleryInput(e.target.value)} placeholder="https://..." />
-          <span className="field-hint">Leave blank to hide the gallery. Each non-empty line becomes one image.</span>
-        </label>
-      </section>
+          ) : null}
+          {showGalleryField ? (
+            <GalleryImagesUpload
+              urls={form.gallery}
+              maxCount={caps.maxGalleryImages}
+              slugForPath={storageSlug}
+              onUrlsChange={(next) => setForm((f) => ({ ...f, gallery: next }))}
+            />
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="form-card">
-        <p className="eyebrow">Section D</p>
         <h3>Page Settings</h3>
-        <div className="form-grid">
+        <div className="form-grid page-settings-grid">
           <label>
             Status
             <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as PageStatus })}>
@@ -375,43 +1022,151 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
               <option value="archived">Archived</option>
             </select>
           </label>
-          <label>
-            Unlock Date (Optional)
-            <input
-              type="datetime-local"
-              value={form.unlockAt ? form.unlockAt.slice(0, 16) : ''}
-              onChange={(e) => setForm({ ...form, unlockAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
-            />
-          </label>
-          <label>
-            Custom Slug (Optional)
-            <input value={form.slug} onChange={(e) => setForm({ ...form, slug: makeSlug(e.target.value) })} />
-          </label>
-          <label>
-            Theme Preset
-            <select value={form.themePreset} onChange={(e) => setForm({ ...form, themePreset: e.target.value as CustomerPage['themePreset'] })}>
-              <option value="classic">Classic</option>
-              <option value="rose">Rose</option>
-              <option value="warm-minimal">Warm Minimal</option>
-            </select>
-          </label>
+          {caps.unlockDateField ? (
+            <label>
+              Unlock Date (Optional)
+              <input
+                type="datetime-local"
+                value={form.unlockAt ? form.unlockAt.slice(0, 16) : ''}
+                onChange={(e) => setForm({ ...form, unlockAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+              />
+            </label>
+          ) : null}
+          {caps.customSlug ? (
+            <label>
+              Custom Slug (Optional)
+              <input value={form.slug} onChange={(e) => setForm({ ...form, slug: makeSlug(e.target.value) })} />
+            </label>
+          ) : null}
+          {showThemePicker ? (
+            <label>
+              Theme Preset
+              <select value={form.themePreset} onChange={(e) => setForm({ ...form, themePreset: e.target.value as CustomerPage['themePreset'] })}>
+                {caps.themePresets.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {THEME_OPTION_LABEL[preset]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
-        <div className="feature-toggles">
-          <label><input type="checkbox" checked={form.passwordEnabled} onChange={(e) => setForm({ ...form, passwordEnabled: e.target.checked })} /> Password protected (future)</label>
-          <label><input type="checkbox" checked={form.timedUnlockEnabled} onChange={(e) => setForm({ ...form, timedUnlockEnabled: e.target.checked })} /> Timed unlock mode</label>
-          <label><input type="checkbox" checked={form.notifyOnOpen} onChange={(e) => setForm({ ...form, notifyOnOpen: e.target.checked })} /> Notify admin on open</label>
-          <label>
-            <input type="checkbox" checked={form.musicAutoplay} onChange={(e) => setForm({ ...form, musicAutoplay: e.target.checked })} />
-            Try music autoplay on open
-          </label>
-        </div>
-        <p className="field-hint feature-toggles-hint">
-          Autoplay only applies when background music is set in Media. Guests can always use the on-page music control.
-        </p>
+
+        {showSettingsToggles ? (
+          <div className="page-settings-toggles" role="group" aria-label="Page options">
+            {caps.passwordToggle ? (
+              <label className="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  className="settings-toggle-input"
+                  checked={form.passwordEnabled}
+                  onChange={(e) => setForm({ ...form, passwordEnabled: e.target.checked })}
+                />
+                <span className="settings-toggle-body">
+                  <span className="settings-toggle-title">Password protected (future)</span>
+                  <span className="settings-toggle-hint">Reserved for a future release; no visitor password gate yet.</span>
+                </span>
+              </label>
+            ) : null}
+            {caps.timedUnlockToggle ? (
+              <label className="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  className="settings-toggle-input"
+                  checked={form.timedUnlockEnabled}
+                  onChange={(e) => setForm({ ...form, timedUnlockEnabled: e.target.checked })}
+                />
+                <span className="settings-toggle-body">
+                  <span className="settings-toggle-title">Timed unlock mode</span>
+                  <span className="settings-toggle-hint">Works with the unlock date above to control when content appears.</span>
+                </span>
+              </label>
+            ) : null}
+            {caps.notifyOnOpen ? (
+              <label className="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  className="settings-toggle-input"
+                  checked={form.notifyOnOpen}
+                  onChange={(e) => setForm({ ...form, notifyOnOpen: e.target.checked })}
+                />
+                <span className="settings-toggle-body">
+                  <span className="settings-toggle-title">Notify admin on open</span>
+                  <span className="settings-toggle-hint">Get notified when a recipient first opens the public page.</span>
+                </span>
+              </label>
+            ) : null}
+            {caps.musicAutoplay ? (
+              <label className="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  className="settings-toggle-input"
+                  checked={form.musicAutoplay}
+                  onChange={(e) => setForm({ ...form, musicAutoplay: e.target.checked })}
+                />
+                <span className="settings-toggle-body">
+                  <span className="settings-toggle-title">Try music autoplay on open</span>
+                  <span className="settings-toggle-hint">
+                    Best-effort only; browsers may block audio until the visitor taps play. Applies when background music is set in Media.
+                    Guests can always use the on-page music control.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
+      {caps.customThemeBuilder ? (
+        <section className="form-card">
+          <h3>Custom theme</h3>
+          <p className="field-hint theme-custom-lead">
+            Premium only. Pick a preset above for the base look; optional accent and background override colors and add a full-page backdrop when set.
+          </p>
+          <div className="form-grid theme-custom-grid">
+            <label className="form-field-stack">
+              Accent color
+              <div className="theme-accent-row">
+                <input
+                  type="color"
+                  aria-label="Pick accent color"
+                  value={accentPickerDisplayValue(form.themeAccentColor)}
+                  onChange={(e) => setForm({ ...form, themeAccentColor: e.target.value })}
+                  className="theme-accent-swatch"
+                />
+                <input
+                  type="text"
+                  placeholder="#c2766e"
+                  value={form.themeAccentColor}
+                  onChange={(e) => setForm({ ...form, themeAccentColor: e.target.value })}
+                  className="theme-accent-hex-input"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="ghost-btn theme-accent-clear"
+                  onClick={() => setForm({ ...form, themeAccentColor: '' })}
+                >
+                  Preset colors only
+                </button>
+              </div>
+              <span className="field-hint">
+                Affects headings, intro seal, Open Letter button, card borders, music dock, and soft shadows on the public page.
+              </span>
+            </label>
+            <ThemeBackgroundUpload
+              imageUrl={form.themeBackgroundImageUrl}
+              slugForPath={storageSlug}
+              onImageUrlChange={(url) => setForm({ ...form, themeBackgroundImageUrl: url })}
+            />
+          </div>
+          {form.themeAccentColor.trim() && !parseHexColor(form.themeAccentColor.trim()) ? (
+            <p className="field-hint field-hint-warn">Use a hex color like #c2766e or clear the field to rely on the preset.</p>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="form-card output-card">
-        <p className="eyebrow">Section E</p>
         <h3>Output</h3>
         <div className="output-grid">
           <div>

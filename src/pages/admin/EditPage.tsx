@@ -21,7 +21,7 @@ export default function EditPage() {
       <p className="eyebrow">Customer Page Studio</p>
       <h2>Edit Customer Page</h2>
       <p className="muted">Update message content, media, and share settings.</p>
-      <PageForm initial={page} onSubmit={submit} />
+      <PageForm key={page.id} initial={page} onSubmit={submit} />
     </div>
   )
 }

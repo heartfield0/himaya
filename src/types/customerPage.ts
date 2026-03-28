@@ -1,12 +1,27 @@
 export type PackageType = 'basic' | 'standard' | 'premium'
 export type PageStatus = 'draft' | 'active' | 'archived'
 
+/** Lucide-based glyph on the gift intro envelope wax seal (Standard & Premium). */
+export type OccasionSealIconId =
+  | 'heart'
+  | 'graduation-cap'
+  | 'cake'
+  | 'flower'
+  | 'tie'
+  | 'book'
+  | 'gift'
+  | 'star'
+  | 'ring'
+  | 'balloon'
+
 export interface CustomerPage {
   id: string
   slug: string
   recipientName: string
   senderName: string
   occasion: string
+  /** Envelope seal icon on the public intro (Standard & Premium); Basic stores heart only */
+  occasionIcon: OccasionSealIconId
   packageType: PackageType
   title: string
   subtitle: string
@@ -26,6 +41,10 @@ export interface CustomerPage {
   timedUnlockEnabled: boolean
   notifyOnOpen: boolean
   musicAutoplay: boolean
+  /** Premium: custom accent (#rrggbb); empty = use preset only */
+  themeAccentColor: string
+  /** Premium: Firebase Storage URL for full-page background; empty = preset only */
+  themeBackgroundImageUrl: string
 }
 
 export interface DashboardMetrics {

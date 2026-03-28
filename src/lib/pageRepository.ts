@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore'
 import type { CustomerPage } from '../types/customerPage'
 import { db } from './firebase'
+import { parseOccasionSealIcon } from './occasionSealIcon'
 import { samplePages } from './sampleData'
 
 const PAGES_KEY = 'himaya_pages'
@@ -35,6 +36,7 @@ const toCustomerPage = (raw: Record<string, unknown>, id: string): CustomerPage 
   recipientName: String(raw.recipientName ?? ''),
   senderName: String(raw.senderName ?? ''),
   occasion: String(raw.occasion ?? ''),
+  occasionIcon: parseOccasionSealIcon(raw.occasionIcon),
   packageType: (raw.packageType as CustomerPage['packageType']) ?? 'basic',
   title: String(raw.title ?? ''),
   subtitle: String(raw.subtitle ?? ''),
@@ -54,6 +56,8 @@ const toCustomerPage = (raw: Record<string, unknown>, id: string): CustomerPage 
   timedUnlockEnabled: Boolean(raw.timedUnlockEnabled),
   notifyOnOpen: raw.notifyOnOpen === undefined ? true : Boolean(raw.notifyOnOpen),
   musicAutoplay: Boolean(raw.musicAutoplay),
+  themeAccentColor: typeof raw.themeAccentColor === 'string' ? raw.themeAccentColor : '',
+  themeBackgroundImageUrl: typeof raw.themeBackgroundImageUrl === 'string' ? raw.themeBackgroundImageUrl : '',
 })
 
 const getSeedPages = (): CustomerPage[] => {
