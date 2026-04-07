@@ -1,6 +1,9 @@
 export type PackageType = 'basic' | 'standard' | 'premium'
 export type PageStatus = 'draft' | 'active' | 'archived'
 
+/** Preset layout for admin print-ready QR cards (A6-oriented export). */
+export type PrintCardTemplateId = 'classic-romantic' | 'graduation' | 'minimal-premium'
+
 /** Lucide-based glyph on the gift intro envelope wax seal (Standard & Premium). */
 export type OccasionSealIconId =
   | 'heart'
@@ -47,6 +50,14 @@ export interface CustomerPage {
   themeAccentColor: string
   /** Premium: Firebase Storage URL for full-page background; empty = preset only */
   themeBackgroundImageUrl: string
+  /** Admin print card generator — saved layout preset */
+  selectedCardTemplate: PrintCardTemplateId
+  /** Override card headline; empty = derive from title / occasion */
+  cardHeadline: string
+  /** Override card subtext; empty = derive from subtitle or default scan line */
+  cardSubtext: string
+  /** Override printed recipient line; empty = use recipientName */
+  cardRecipientName: string
 }
 
 export interface DashboardMetrics {

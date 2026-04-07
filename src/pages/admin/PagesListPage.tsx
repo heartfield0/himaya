@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { EDIT_FLASH_KEY } from '../../lib/adminFlash'
 import { usePages } from '../../context/usePages'
 import type { CustomerPage } from '../../types/customerPage'
 
@@ -13,11 +14,15 @@ function PageActions({
   page,
   archivePage,
   deletePage,
+  onDuplicate,
+  duplicating,
   variant,
 }: {
   page: CustomerPage
   archivePage: (id: string) => Promise<void>
   deletePage: (id: string) => Promise<void>
+  onDuplicate: (page: CustomerPage) => void
+  duplicating: boolean
   variant: 'table' | 'card'
 }) {
   const wrapClass = variant === 'card' ? 'page-card-actions' : 'row-actions'
@@ -27,6 +32,14 @@ function PageActions({
         View
       </Link>
       <Link to={`/admin/pages/${page.id}/edit`}>Edit</Link>
+      <button
+        type="button"
+        className="page-action-duplicate"
+        disabled={duplicating}
+        onClick={() => onDuplicate(page)}
+      >
+        {duplicating ? 'Duplicating…' : 'Duplicate'}
+      </button>
       <button type="button" onClick={() => void archivePage(page.id)}>
         Archive
       </button>
@@ -41,8 +54,31 @@ function PageActions({
 }
 
 export default function PagesListPage() {
-  const { pages, archivePage, deletePage, isLoading } = usePages()
+  const { pages, archivePage, deletePage, duplicatePage, isLoading } = usePages()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [listError, setListError] = useState<string | null>(null)
+
+  const handleDuplicate = (page: CustomerPage) => {
+    setListError(null)
+    setDuplicatingId(page.id)
+    void duplicatePage(page.id)
+      .then((created) => {
+        if (!created) {
+          setListError('Could not duplicate page. Try again.')
+          return
+        }
+        sessionStorage.setItem(EDIT_FLASH_KEY, 'Page duplicated successfully')
+        navigate(`/admin/pages/${created.id}/edit`)
+      })
+      .catch(() => {
+        setListError('Could not duplicate page. Try again.')
+      })
+      .finally(() => {
+        setDuplicatingId(null)
+      })
+  }
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
@@ -69,6 +105,12 @@ export default function PagesListPage() {
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search recipient, occasion, slug..."
       />
+
+      {listError ? (
+        <p className="error-msg pages-list-error" role="alert">
+          {listError}
+        </p>
+      ) : null}
 
       <div className="pages-list-table-view table-wrap">
         <table className="pages-table">
@@ -97,7 +139,14 @@ export default function PagesListPage() {
                 <td>{fmt(p.createdAt)}</td>
                 <td>{fmt(p.lastViewedAt)}</td>
                 <td>
-                  <PageActions page={p} archivePage={archivePage} deletePage={deletePage} variant="table" />
+                  <PageActions
+                    page={p}
+                    archivePage={archivePage}
+                    deletePage={deletePage}
+                    onDuplicate={handleDuplicate}
+                    duplicating={duplicatingId === p.id}
+                    variant="table"
+                  />
                 </td>
               </tr>
             ))}
@@ -133,7 +182,14 @@ export default function PagesListPage() {
                 <dd>{fmt(p.lastViewedAt)}</dd>
               </div>
             </dl>
-            <PageActions page={p} archivePage={archivePage} deletePage={deletePage} variant="card" />
+            <PageActions
+              page={p}
+              archivePage={archivePage}
+              deletePage={deletePage}
+              onDuplicate={handleDuplicate}
+              duplicating={duplicatingId === p.id}
+              variant="card"
+            />
           </li>
         ))}
       </ul>

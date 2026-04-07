@@ -35,19 +35,21 @@ import {
   validateThemeBackgroundFile,
 } from '../../lib/uploadThemeBackground'
 import { OCCASION_SEAL_CHOICES, suggestOccasionSealIcon } from '../../lib/occasionSealIcon'
+import { THEME_PRESET_LABEL } from '../../lib/adminContentLabels'
+import {
+  CUSTOMER_PAGE_FORM_DEFAULTS,
+  customerPageToFormState,
+  type CustomerPageFormState,
+} from '../../lib/pageTemplateMapping'
 import { clipGalleryUrlsForTier, getPackageCapabilities, effectiveThemePreset } from '../../lib/packageCapabilities'
 import type { CustomerPage, PackageType, PageStatus } from '../../types/customerPage'
+import PrintCardModal from './PrintCardModal'
+import SaveTemplateModal from './SaveTemplateModal'
 
 const AUDIO_INPUT_ACCEPT = '.mp3,.wav,.m4a,.aac,.ogg,.opus,.flac,audio/*'
 const THEME_BG_INPUT_ACCEPT = '.png,.jpg,.jpeg,.webp,image/*'
 const GALLERY_INPUT_ACCEPT = `${ALLOWED_GALLERY_IMAGE_EXTENSIONS.join(',')},image/*`
 const MESSAGE_VIDEO_INPUT_ACCEPT = '.mp4,.webm,.ogg,.ogv,.mov,video/*'
-
-const THEME_OPTION_LABEL: Record<CustomerPage['themePreset'], string> = {
-  classic: 'Classic',
-  rose: 'Rose',
-  'warm-minimal': 'Warm Minimal',
-}
 
 function BackgroundMusicUpload({
   musicUrl,
@@ -816,34 +818,19 @@ function GalleryImagesUpload({
 }
 
 interface PageFormProps {
-  initial?: CustomerPage
+  initialCustomerPage?: CustomerPage
+  initialFormSeed?: CustomerPageFormState
+  enableSaveAsTemplate?: boolean
   onSubmit: (payload: Omit<CustomerPage, 'id' | 'createdAt' | 'updatedAt' | 'views' | 'lastViewedAt'>) => void
 }
 
-const defaultForm: Omit<CustomerPage, 'id' | 'createdAt' | 'updatedAt' | 'views' | 'lastViewedAt'> = {
-  slug: '',
-  recipientName: '',
-  senderName: '',
-  occasion: '',
-  occasionIcon: 'heart',
-  packageType: 'basic',
-  title: '',
-  subtitle: '',
-  shortMessage: '',
-  longLetter: '',
-  videoUrl: '',
-  gallery: [],
-  musicUrl: '',
-  status: 'draft',
-  unlockAt: null,
-  themePreset: 'classic',
-  passwordEnabled: false,
-  giftAccessPassword: '',
-  timedUnlockEnabled: false,
-  notifyOnOpen: true,
-  musicAutoplay: false,
-  themeAccentColor: '',
-  themeBackgroundImageUrl: '',
+function getInitialFormState(
+  page: CustomerPage | undefined,
+  seed: CustomerPageFormState | undefined,
+): CustomerPageFormState {
+  if (page) return customerPageToFormState(page)
+  if (seed) return seed
+  return CUSTOMER_PAGE_FORM_DEFAULTS
 }
 
 const makeSlug = (value: string) =>
@@ -853,15 +840,21 @@ const makeSlug = (value: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 
-export default function PageForm({ initial, onSubmit }: PageFormProps) {
-  const [form, setForm] = useState<Omit<CustomerPage, 'id' | 'createdAt' | 'updatedAt' | 'views' | 'lastViewedAt'>>(
-    initial
-      ? {
-          ...initial,
-          unlockAt: initial.unlockAt,
-        }
-      : defaultForm,
+export default function PageForm({
+  initialCustomerPage,
+  initialFormSeed,
+  enableSaveAsTemplate,
+  onSubmit,
+}: PageFormProps) {
+  const [form, setForm] = useState<CustomerPageFormState>(() =>
+    getInitialFormState(initialCustomerPage, initialFormSeed),
   )
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
+  const [printCardOpen, setPrintCardOpen] = useState(false)
+
+  const patchForm = useCallback((patch: Partial<CustomerPageFormState>) => {
+    setForm((f) => ({ ...f, ...patch }))
+  }, [])
 
   const publicUrl = useMemo(() => {
     const slug = form.slug || makeSlug(`${form.recipientName}-${form.occasion || 'gift'}`)
@@ -1122,7 +1115,7 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
               <select value={form.themePreset} onChange={(e) => setForm({ ...form, themePreset: e.target.value as CustomerPage['themePreset'] })}>
                 {caps.themePresets.map((preset) => (
                   <option key={preset} value={preset}>
-                    {THEME_OPTION_LABEL[preset]}
+                    {THEME_PRESET_LABEL[preset]}
                   </option>
                 ))}
               </select>
@@ -1276,8 +1269,12 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
             <p className="muted">Public URL</p>
             <p className="public-url">{publicUrl}</p>
             <div className="inline-actions">
-              <button type="button" className="secondary-btn" onClick={() => navigator.clipboard.writeText(publicUrl)}>Copy Link</button>
-              <button type="button" className="secondary-btn" disabled>Download QR (placeholder)</button>
+              <button type="button" className="secondary-btn" onClick={() => navigator.clipboard.writeText(publicUrl)}>
+                Copy Link
+              </button>
+              <button type="button" className="secondary-btn" onClick={() => setPrintCardOpen(true)}>
+                Generate Card
+              </button>
             </div>
           </div>
           <div className="qr-preview">
@@ -1286,7 +1283,33 @@ export default function PageForm({ initial, onSubmit }: PageFormProps) {
         </div>
       </section>
 
-      <button className="primary-btn" type="submit">Save Customer Page</button>
+      <div className="page-form-actions">
+        {enableSaveAsTemplate ? (
+          <button
+            type="button"
+            className="secondary-btn page-form-action-secondary"
+            onClick={() => setSaveTemplateOpen(true)}
+          >
+            Save as Template
+          </button>
+        ) : null}
+        <button className="primary-btn page-form-action-primary" type="submit">
+          Save Customer Page
+        </button>
+      </div>
+
+      {enableSaveAsTemplate ? (
+        <SaveTemplateModal open={saveTemplateOpen} onClose={() => setSaveTemplateOpen(false)} form={form} />
+      ) : null}
+
+      <PrintCardModal
+        open={printCardOpen}
+        onClose={() => setPrintCardOpen(false)}
+        publicUrl={publicUrl}
+        slugForFile={form.slug || makeSlug(`${form.recipientName}-${form.occasion || 'gift'}`)}
+        form={form}
+        onFormPatch={patchForm}
+      />
     </form>
   )
 }

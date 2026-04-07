@@ -9,6 +9,7 @@ export interface PageContextValue {
   updatePage: (id: string, payload: Partial<CustomerPage>) => Promise<CustomerPage | null>
   deletePage: (id: string) => Promise<void>
   archivePage: (id: string) => Promise<void>
+  duplicatePage: (id: string) => Promise<CustomerPage | null>
 }
 
 export const PageContext = createContext<PageContextValue | null>(null)

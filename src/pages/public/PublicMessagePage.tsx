@@ -3,6 +3,7 @@ import { Navigate, useParams } from 'react-router-dom'
 import { Flower2, Heart, Lock, Music2, Sparkles } from 'lucide-react'
 import himayaMark from '../../assets/logo/himaya-mark.png'
 import { GalleryLightbox } from '../../components/public/GalleryLightbox'
+import { MemoryGalleryPreview } from '../../components/public/MemoryGalleryPreview'
 import {
   constantTimeEqualStrings,
   giftPasswordGateActive,
@@ -441,37 +442,10 @@ export default function PublicMessagePage() {
               <section className="public-card memory-gallery-card">
                 <p className="section-kicker memory-gallery-kicker">Memory Gallery</p>
                 <div className="memory-gallery">
-                  <button
-                    type="button"
-                    className={`memory-gallery-featured${content.gallery.length === 1 ? ' memory-gallery-featured--solo' : ''}`}
-                    onClick={() => setGalleryLightboxIndex(0)}
-                  >
-                    <span className="memory-gallery-featured-inner">
-                      <img
-                        src={content.gallery[0]}
-                        alt=""
-                        loading="eager"
-                        decoding="async"
-                      />
-                      {content.gallery.length > 1 ? (
-                        <span className="memory-gallery-featured-shine" aria-hidden />
-                      ) : null}
-                    </span>
-                  </button>
-                  {content.gallery.length > 1 ? (
-                    <div className="memory-gallery-mosaic">
-                      {content.gallery.slice(1).map((image, i) => (
-                        <button
-                          key={`${image}-${i + 1}`}
-                          type="button"
-                          className="memory-gallery-tile"
-                          onClick={() => setGalleryLightboxIndex(i + 1)}
-                        >
-                          <img src={image} alt="" loading="lazy" decoding="async" />
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
+                  <MemoryGalleryPreview
+                    images={content.gallery}
+                    onOpen={() => setGalleryLightboxIndex(0)}
+                  />
                 </div>
               </section>
             ) : null}

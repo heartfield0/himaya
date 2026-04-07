@@ -56,6 +56,11 @@ export function PageProvider({ children }: { children: React.ReactNode }) {
         await pageRepository.archive(id)
         await refresh()
       },
+      duplicatePage: async (id: string) => {
+        const created = await pageRepository.duplicatePage(id)
+        await refresh()
+        return created
+      },
     }),
     [isLoading, pages, refresh],
   )

@@ -39,6 +39,10 @@ export const samplePages: CustomerPage[] = [
     themeAccentColor: '',
     themeBackgroundImageUrl: '',
     occasionIcon: 'cake',
+    selectedCardTemplate: 'classic-romantic',
+    cardHeadline: '',
+    cardSubtext: '',
+    cardRecipientName: '',
   },
   {
     id: 'pg_002',
@@ -69,6 +73,10 @@ export const samplePages: CustomerPage[] = [
     themeAccentColor: '',
     themeBackgroundImageUrl: '',
     occasionIcon: 'ring',
+    selectedCardTemplate: 'classic-romantic',
+    cardHeadline: '',
+    cardSubtext: '',
+    cardRecipientName: '',
   },
   {
     id: 'pg_003',
@@ -99,6 +107,10 @@ export const samplePages: CustomerPage[] = [
     themeAccentColor: '',
     themeBackgroundImageUrl: '',
     occasionIcon: 'heart',
+    selectedCardTemplate: 'graduation',
+    cardHeadline: '',
+    cardSubtext: '',
+    cardRecipientName: '',
   },
   {
     id: 'pg_004',
@@ -132,5 +144,9 @@ export const samplePages: CustomerPage[] = [
     themeAccentColor: '',
     themeBackgroundImageUrl: '',
     occasionIcon: 'flower',
+    selectedCardTemplate: 'minimal-premium',
+    cardHeadline: '',
+    cardSubtext: '',
+    cardRecipientName: '',
   },
 ]

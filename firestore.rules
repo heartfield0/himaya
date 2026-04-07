@@ -18,6 +18,10 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
+    match /templates/{templateId} {
+      allow read, write: if isAdmin();
+    }
+
     match /customerPages/{pageId} {
       // Admin can read everything. Public can only read active pages.
       allow get, list: if isAdmin() || resource.data.status == "active";

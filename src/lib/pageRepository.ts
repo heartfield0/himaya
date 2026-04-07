@@ -14,8 +14,10 @@ import {
   where,
 } from 'firebase/firestore'
 import type { CustomerPage } from '../types/customerPage'
+import { parsePrintCardTemplateId } from '../types/printCard'
 import { db } from './firebase'
 import { parseOccasionSealIcon } from './occasionSealIcon'
+import { buildDuplicateSlugCandidate, pageToDuplicateCreatePayload } from './duplicateCustomerPage'
 import { samplePages } from './sampleData'
 
 const PAGES_KEY = 'himaya_pages'
@@ -59,6 +61,10 @@ const toCustomerPage = (raw: Record<string, unknown>, id: string): CustomerPage 
   musicAutoplay: Boolean(raw.musicAutoplay),
   themeAccentColor: typeof raw.themeAccentColor === 'string' ? raw.themeAccentColor : '',
   themeBackgroundImageUrl: typeof raw.themeBackgroundImageUrl === 'string' ? raw.themeBackgroundImageUrl : '',
+  selectedCardTemplate: parsePrintCardTemplateId(raw.selectedCardTemplate),
+  cardHeadline: typeof raw.cardHeadline === 'string' ? raw.cardHeadline : '',
+  cardSubtext: typeof raw.cardSubtext === 'string' ? raw.cardSubtext : '',
+  cardRecipientName: typeof raw.cardRecipientName === 'string' ? raw.cardRecipientName : '',
 })
 
 const getSeedPages = (): CustomerPage[] => {
@@ -161,6 +167,29 @@ export const pageRepository = {
   remove: async (id: string) => {
     await ensureBootstrapped()
     await deleteDoc(doc(db, CUSTOMER_PAGES, id))
+  },
+
+  /**
+   * Clone a page into a new document with a unique slug (original slug + random suffix).
+   * Does not modify the source document.
+   */
+  duplicatePage: async (sourceId: string): Promise<CustomerPage | null> => {
+    await ensureBootstrapped()
+    const source = await pageRepository.getById(sourceId)
+    if (!source) return null
+
+    const maxAttempts = 32
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const newSlug = buildDuplicateSlugCandidate(source.slug)
+      const taken = await pageRepository.getBySlug(newSlug)
+      if (taken) continue
+      const payload = pageToDuplicateCreatePayload(source, newSlug)
+      const created = await pageRepository.create(payload)
+      return created
+    }
+
+    console.error('[Himaya] duplicatePage: exhausted slug attempts for', sourceId)
+    return null
   },
 
   incrementView: async (slug: string) => {
