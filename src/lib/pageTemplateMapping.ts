@@ -37,6 +37,9 @@ export const CUSTOMER_PAGE_FORM_DEFAULTS: CustomerPageFormState = {
   cardHeadline: '',
   cardSubtext: '',
   cardRecipientName: '',
+  allowCustomerEdit: false,
+  customerEditToken: null,
+  customerEditExpiresAt: null,
 }
 
 export function customerPageToFormState(page: CustomerPage): CustomerPageFormState {
@@ -68,6 +71,9 @@ export function customerPageToFormState(page: CustomerPage): CustomerPageFormSta
     cardHeadline: page.cardHeadline,
     cardSubtext: page.cardSubtext,
     cardRecipientName: page.cardRecipientName,
+    allowCustomerEdit: page.allowCustomerEdit,
+    customerEditToken: page.customerEditToken,
+    customerEditExpiresAt: page.customerEditExpiresAt,
   }
 }
 

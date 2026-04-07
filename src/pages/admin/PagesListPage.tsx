@@ -10,6 +10,12 @@ function copyPageLink(slug: string) {
   void navigator.clipboard.writeText(`${window.location.origin}/m/${slug}`)
 }
 
+function copyCustomerEditLink(page: CustomerPage) {
+  if (!page.allowCustomerEdit || !page.customerEditToken || page.customerEditToken.length < 32) return
+  const url = `${window.location.origin}/edit-message/${encodeURIComponent(page.slug)}?token=${encodeURIComponent(page.customerEditToken)}`
+  void navigator.clipboard.writeText(url)
+}
+
 function PageActions({
   page,
   archivePage,
@@ -48,6 +54,21 @@ function PageActions({
       </button>
       <button type="button" onClick={() => copyPageLink(page.slug)}>
         Copy Link
+      </button>
+      <button
+        type="button"
+        className="page-action-customer-edit"
+        disabled={!page.allowCustomerEdit || !page.customerEditToken}
+        title={
+          !page.allowCustomerEdit
+            ? 'Enable customer editing in the page editor'
+            : !page.customerEditToken
+              ? 'Generate a customer edit link in the page editor'
+              : 'Copy the secure customer edit URL'
+        }
+        onClick={() => copyCustomerEditLink(page)}
+      >
+        Copy edit link
       </button>
     </div>
   )

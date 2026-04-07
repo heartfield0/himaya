@@ -58,6 +58,12 @@ export interface CustomerPage {
   cardSubtext: string
   /** Override printed recipient line; empty = use recipientName */
   cardRecipientName: string
+  /** When true, customers with a valid edit link may update a limited field set (no admin access). */
+  allowCustomerEdit: boolean
+  /** Stored only on `customerPages` — never copied to `publicCustomerPages`. */
+  customerEditToken: string | null
+  /** Optional link expiry (ISO string); enforced in Firestore rules. */
+  customerEditExpiresAt: string | null
 }
 
 export interface DashboardMetrics {

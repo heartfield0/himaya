@@ -43,6 +43,7 @@ import {
 } from '../../lib/pageTemplateMapping'
 import { clipGalleryUrlsForTier, getPackageCapabilities, effectiveThemePreset } from '../../lib/packageCapabilities'
 import type { CustomerPage, PackageType, PageStatus } from '../../types/customerPage'
+import CustomerEditAdminPanel from './CustomerEditAdminPanel'
 import PrintCardModal from './PrintCardModal'
 import SaveTemplateModal from './SaveTemplateModal'
 
@@ -1259,6 +1260,12 @@ export default function PageForm({
           {form.themeAccentColor.trim() && !parseHexColor(form.themeAccentColor.trim()) ? (
             <p className="field-hint field-hint-warn">Use a hex color like #c2766e or clear the field to rely on the preset.</p>
           ) : null}
+        </section>
+      ) : null}
+
+      {initialCustomerPage?.id ? (
+        <section className="form-card customer-edit-admin-wrap">
+          <CustomerEditAdminPanel page={initialCustomerPage} />
         </section>
       ) : null}
 

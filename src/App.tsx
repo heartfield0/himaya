@@ -8,6 +8,7 @@ import PagesListPage from './pages/admin/PagesListPage'
 import NewPage from './pages/admin/NewPage'
 import EditPage from './pages/admin/EditPage'
 import PublicMessagePage from './pages/public/PublicMessagePage'
+import CustomerEditMessagePage from './pages/public/CustomerEditMessagePage'
 
 function HomeRedirect() {
   const { isAuthenticated, isInitializing } = useAuth()
@@ -21,6 +22,7 @@ export default function App() {
       <Route path="/" element={<HomeRedirect />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/m/:slug" element={<PublicMessagePage />} />
+      <Route path="/edit-message/:slug" element={<CustomerEditMessagePage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/admin" element={<AdminLayout />}>

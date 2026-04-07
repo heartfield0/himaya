@@ -32,7 +32,13 @@ export default function EditPage() {
   if (!page) return <Navigate to="/admin/pages" replace />
 
   const submit = async (payload: Omit<CustomerPage, 'id' | 'createdAt' | 'updatedAt' | 'views' | 'lastViewedAt'>) => {
-    await updatePage(page.id, payload)
+    const latest = pages.find((p) => p.id === page.id) ?? page
+    await updatePage(page.id, {
+      ...payload,
+      allowCustomerEdit: latest.allowCustomerEdit,
+      customerEditToken: latest.customerEditToken,
+      customerEditExpiresAt: latest.customerEditExpiresAt,
+    })
     navigate('/admin/pages')
   }
 

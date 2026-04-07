@@ -85,9 +85,9 @@ export default function PublicMessagePage() {
         const gate = giftPasswordGateActive(current)
         const alreadyUnlocked = readGiftUnlockFromSession(slug)
         if (!gate || alreadyUnlocked) {
-          void pageRepository.incrementView(slug).then((viewed) => {
-            if (!isMounted || !viewed) return
-            setPage(viewed)
+          void pageRepository.incrementView(slug).then((ok) => {
+            if (!isMounted || !ok || !current) return
+            setPage({ ...current, views: current.views + 1 })
           })
         }
       } catch (error) {
@@ -201,8 +201,8 @@ export default function PublicMessagePage() {
     setGiftUnlocked(true)
     setPasswordGateError(null)
     setPasswordAttempt('')
-    void pageRepository.incrementView(slug).then((viewed) => {
-      if (viewed) setPage(viewed)
+    void pageRepository.incrementView(slug).then((ok) => {
+      if (ok && page) setPage({ ...page, views: page.views + 1 })
     })
   }
 

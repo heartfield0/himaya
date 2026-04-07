@@ -43,6 +43,9 @@ export const samplePages: CustomerPage[] = [
     cardHeadline: '',
     cardSubtext: '',
     cardRecipientName: '',
+    allowCustomerEdit: false,
+    customerEditToken: null,
+    customerEditExpiresAt: null,
   },
   {
     id: 'pg_002',
@@ -77,6 +80,9 @@ export const samplePages: CustomerPage[] = [
     cardHeadline: '',
     cardSubtext: '',
     cardRecipientName: '',
+    allowCustomerEdit: false,
+    customerEditToken: null,
+    customerEditExpiresAt: null,
   },
   {
     id: 'pg_003',
@@ -111,6 +117,9 @@ export const samplePages: CustomerPage[] = [
     cardHeadline: '',
     cardSubtext: '',
     cardRecipientName: '',
+    allowCustomerEdit: false,
+    customerEditToken: null,
+    customerEditExpiresAt: null,
   },
   {
     id: 'pg_004',
@@ -148,5 +157,8 @@ export const samplePages: CustomerPage[] = [
     cardHeadline: '',
     cardSubtext: '',
     cardRecipientName: '',
+    allowCustomerEdit: false,
+    customerEditToken: null,
+    customerEditExpiresAt: null,
   },
 ]

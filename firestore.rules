@@ -18,19 +18,121 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
+    function maxGalleryForPackage(pkg) {
+      return pkg == "premium" ? 24 : (pkg == "standard" ? 8 : 0);
+    }
+
+    function themePresetAllowed(pkg, preset) {
+      return (pkg == "basic" && preset == "classic")
+        || (pkg == "standard" && (preset == "classic" || preset == "rose"))
+        || (pkg == "premium" && (preset == "classic" || preset == "rose" || preset == "warm-minimal"));
+    }
+
+    function customerPagePath(pageId) {
+      return /databases/$(database)/documents/customerPages/$(pageId);
+    }
+
+    function customerEditParentAllowsFromMirrorPageId(pageId) {
+      return exists(customerPagePath(pageId))
+        && get(customerPagePath(pageId)).data.allowCustomerEdit == true
+        && get(customerPagePath(pageId)).data.customerEditToken is string
+        && get(customerPagePath(pageId)).data.customerEditToken.size() >= 32
+        && (
+          get(customerPagePath(pageId)).data.customerEditExpiresAt == null
+          || request.time < get(customerPagePath(pageId)).data.customerEditExpiresAt
+        );
+    }
+
+    function customerMirrorMatchesParent(pageId) {
+      return exists(customerPagePath(pageId))
+        && request.resource.data.recipientName == get(customerPagePath(pageId)).data.recipientName
+        && request.resource.data.senderName == get(customerPagePath(pageId)).data.senderName
+        && request.resource.data.shortMessage == get(customerPagePath(pageId)).data.shortMessage
+        && request.resource.data.longLetter == get(customerPagePath(pageId)).data.longLetter
+        && request.resource.data.themePreset == get(customerPagePath(pageId)).data.themePreset
+        && request.resource.data.musicUrl == get(customerPagePath(pageId)).data.musicUrl
+        && request.resource.data.musicAutoplay == get(customerPagePath(pageId)).data.musicAutoplay
+        && request.resource.data.gallery == get(customerPagePath(pageId)).data.gallery;
+    }
+
+    function isCustomerPublicMirrorSliceUpdate() {
+      return request.auth == null
+        && resource.data.status == "active"
+        && customerEditParentAllowsFromMirrorPageId(resource.data.pageId)
+        && request.writeFields.hasOnly([
+          "recipientName", "senderName", "shortMessage", "longLetter", "gallery",
+          "themePreset", "musicUrl", "musicAutoplay", "updatedAt"
+        ])
+        && customerMirrorMatchesParent(resource.data.pageId);
+    }
+
+    function customerSelfEditImmutableOk() {
+      return request.resource.data.slug == resource.data.slug
+        && request.resource.data.packageType == resource.data.packageType
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.views == resource.data.views
+        && request.resource.data.occasion == resource.data.occasion
+        && request.resource.data.occasionIcon == resource.data.occasionIcon
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.subtitle == resource.data.subtitle
+        && request.resource.data.videoUrl == resource.data.videoUrl
+        && request.resource.data.passwordEnabled == resource.data.passwordEnabled
+        && request.resource.data.giftAccessPassword == resource.data.giftAccessPassword
+        && request.resource.data.timedUnlockEnabled == resource.data.timedUnlockEnabled
+        && request.resource.data.unlockAt == resource.data.unlockAt
+        && request.resource.data.notifyOnOpen == resource.data.notifyOnOpen
+        && request.resource.data.themeAccentColor == resource.data.themeAccentColor
+        && request.resource.data.themeBackgroundImageUrl == resource.data.themeBackgroundImageUrl
+        && request.resource.data.selectedCardTemplate == resource.data.selectedCardTemplate
+        && request.resource.data.cardHeadline == resource.data.cardHeadline
+        && request.resource.data.cardSubtext == resource.data.cardSubtext
+        && request.resource.data.cardRecipientName == resource.data.cardRecipientName
+        && request.resource.data.allowCustomerEdit == resource.data.allowCustomerEdit
+        && request.resource.data.customerEditExpiresAt == resource.data.customerEditExpiresAt
+        && request.resource.data.customerEditToken == resource.data.customerEditToken
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.lastViewedAt == resource.data.lastViewedAt
+        && request.resource.data.id == resource.data.id;
+    }
+
+    function isCustomerSelfEditUpdate() {
+      return request.auth == null
+        && resource.data.status == "active"
+        && resource.data.allowCustomerEdit == true
+        && resource.data.customerEditToken is string
+        && resource.data.customerEditToken.size() >= 32
+        && (resource.data.customerEditExpiresAt == null || request.time < resource.data.customerEditExpiresAt)
+        && request.writeFields.hasAll(["customerEditToken"])
+        && request.writeFields.hasOnly([
+          "recipientName", "senderName", "shortMessage", "longLetter", "gallery",
+          "themePreset", "musicUrl", "musicAutoplay", "customerEditToken", "updatedAt"
+        ])
+        && request.resource.data.customerEditToken == resource.data.customerEditToken
+        && customerSelfEditImmutableOk()
+        && request.resource.data.recipientName.size() <= 200
+        && request.resource.data.senderName.size() <= 200
+        && request.resource.data.shortMessage.size() <= 12000
+        && request.resource.data.longLetter.size() <= 60000
+        && request.resource.data.musicUrl.size() <= 2048
+        && request.resource.data.gallery.size() <= maxGalleryForPackage(resource.data.packageType)
+        && themePresetAllowed(resource.data.packageType, request.resource.data.themePreset);
+    }
+
     match /templates/{templateId} {
       allow read, write: if isAdmin();
     }
 
-    match /customerPages/{pageId} {
-      // Admin can read everything. Public can only read active pages.
-      allow get, list: if isAdmin() || resource.data.status == "active";
-
-      // Admin full write access.
+    match /publicCustomerPages/{slug} {
+      allow get: if resource.data.status == "active" || isAdmin();
+      allow list: if isAdmin();
       allow create, delete: if isAdmin();
+      allow update: if isAdmin() || isCustomerPublicMirrorSliceUpdate();
+    }
 
-      // Public can only increment view-related fields on active pages.
-      allow update: if isAdmin() || isPublicViewIncrement();
+    match /customerPages/{pageId} {
+      allow get, list: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || isPublicViewIncrement() || isCustomerSelfEditUpdate();
     }
   }
 }

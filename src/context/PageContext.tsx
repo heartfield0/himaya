@@ -12,6 +12,7 @@ export function PageProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     setIsLoading(true)
     const nextPages = await pageRepository.list()
+    await pageRepository.syncPublicMirrorsForPages(nextPages)
     setPages(nextPages)
     setIsLoading(false)
   }, [])
@@ -25,6 +26,7 @@ export function PageProvider({ children }: { children: React.ReactNode }) {
         return
       }
       const nextPages = await pageRepository.list()
+      await pageRepository.syncPublicMirrorsForPages(nextPages)
       setPages(nextPages)
       setIsLoading(false)
     }

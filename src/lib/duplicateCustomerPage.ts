@@ -55,5 +55,8 @@ export function pageToDuplicateCreatePayload(
     cardHeadline: source.cardHeadline,
     cardSubtext: source.cardSubtext,
     cardRecipientName: source.cardRecipientName,
+    allowCustomerEdit: false,
+    customerEditToken: null,
+    customerEditExpiresAt: null,
   }
 }
